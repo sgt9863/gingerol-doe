@@ -148,6 +148,15 @@
   → 同じコードを「通常環境でモジュール import」「Python in Excel のセルに貼付」の両方で使える（二重管理回避）
 - plotly は最終 3D 出力(scripts/05)専用。Excel 側は matplotlib のみ
 
+**フロントエンド：Excel と Streamlit の両対応（確定）**
+- 中核ロジックが numpy 系のみなので、2つの入口を無理なく載せられる
+| 入口 | 用途 | 3D |
+|------|------|----|
+| Python in Excel | Excel に馴染んだ作業・手元計算 | matplotlib 静止画 |
+| Streamlit Web アプリ | ボタン操作・報告で見せる対話的可視化 | plotly（回転可）|
+- 両者は同じ `scripts/` の関数を呼ぶだけ。ロジックは一箇所に集約
+- Streamlit 起動：手元PCで `streamlit run app.py`（または Community Cloud に配置）
+
 ---
 
 ## 全指摘の確定状況
@@ -167,3 +176,4 @@
 | 2026-06-26 | 社内報告用にモデル根拠文献集 literature.md を作成（ファントホッフ/LSS/van Deemter/ICH Q8/RSM/gingerol） |
 | 2026-06-26 | 指摘7（実測リスト）を確定。半値幅採用、V_m幾何推算0.24mL、現行反復は中心点で代替し不要 |
 | 2026-06-26 | Excel連携を確定。Python in Excel＋ハイブリッド（中核はnumpy系のみ／plotly 3Dは別環境）。全指摘確定 |
+| 2026-06-26 | フロントは Excel と Streamlit の両対応に決定。中核ロジック共通、入口だけ2つ |
