@@ -61,8 +61,20 @@ design:
 5. **3D描画** — `scripts/05_designspace.py`（plotly html）（未実装）
 
 ## 出力
-- 推奨条件（最も頑健な点）と、Rs≥閾値のデザインスペース3Dプロット（html）
+- 推奨条件（最も頑健な点）と、Rs≥閾値のデザインスペース 3D プロット（plotly html）
+- Excel 側プレビュー：matplotlib の静止画（3D / 2D 等高線）
+
+## 実行環境：Python in Excel ＋ ハイブリッド
+- ユーザー作業は **Python in Excel**（セル内 Python）で行う
+- 制約：自作モジュール import 不可・ローカルファイル出力不可・既定ライブラリのみ
+  （numpy / pandas / scipy / statsmodels / matplotlib）
+- 役割分担：
+  - フィット・最適化・デザインスペース判定・簡易プレビュー → Python in Excel
+  - 対話的 3D（plotly html、報告用） → 通常 Python 環境で `scripts/05` を1回実行
+- **依存ライブラリ制約**：中核ロジック（01〜04）は numpy/scipy/statsmodels/pandas のみで書く
+  → 同じコードを「モジュール import」「Excel セルに貼付」の両方で使える（二重管理回避）
+  → plotly は 05 専用
 
 ## 再利用のための分離方針
-- **変わる部分** → `config.yaml`（因子名・範囲・ピーク数・Vm・Rs閾値）
+- **変わる部分** → `config.yaml`（因子名・範囲・ピーク数・Vm・合格条件・設計設定）
 - **固定ロジック** → `scripts/`（数理モデル・計画生成・フィット・最適化・描画）
