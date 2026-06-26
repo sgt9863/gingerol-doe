@@ -60,11 +60,12 @@ def evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0):
     # クロスオーバー対応: 最遅ピークは3本のうちの max（入れ替わるため）
     tR_last = np.maximum.reduce([sep["TP"]["tR"], sep["IP1"]["tR"], sep["IP2"]["tR"]])
 
-    pass_mask = (
-        (sep["Rs_min"] >= criteria["Rs_min"])
-        & (tR_TP <= criteria["tR_TP_max"])
-        & (tR_last <= criteria["tR_last_max"])
-    )
+    # 合格条件: Rs_min と t_R(TP)。
+    # tR_last_max は「データ取り段階の洗浄前制約」であってデザインスペースの合否ではないため、
+    # criteria に与えられた場合のみ任意で適用する（既定は不使用）。
+    pass_mask = (sep["Rs_min"] >= criteria["Rs_min"]) & (tR_TP <= criteria["tR_TP_max"])
+    if criteria.get("tR_last_max") is not None:
+        pass_mask = pass_mask & (tR_last <= criteria["tR_last_max"])
     return {
         "T": T, "phi": phi, "F": F,
         "Rs_min": sep["Rs_min"],
