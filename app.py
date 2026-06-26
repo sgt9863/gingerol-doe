@@ -182,13 +182,18 @@ with c2:
 # ── 3D 可視化 ──
 st.header("4. 3D デザインスペース")
 if rec is not None:
-    style_label = st.radio(
+    cc1, cc2 = st.columns(2)
+    style_label = cc1.radio(
         "雲の表現", ["無段階のボリューム", "散布点"], horizontal=True,
         help="ボリュームは滑らかな靄（WebGL 必須）。散布点は軽くて確実に表示される。")
     cloud_style = "volume" if style_label == "無段階のボリューム" else "scatter"
+    side_label = cc2.radio(
+        "等高線の壁の位置", ["自動", "手前（下限側）", "奥（上限側）"], horizontal=True,
+        help="自動はデザインスペースに近い面へ壁を寄せる。見にくければ手前/奥に固定。")
+    wall_side = {"自動": "auto", "手前（下限側）": "low", "奥（上限側）": "high"}[side_label]
     fig = ds.plot_designspace_3d(grid, rec, model_mod=model, peaks=peaks_hat,
                                  factors=factors, Vm=Vm, L_mm=L_mm,
-                                 cloud_style=cloud_style)
+                                 cloud_style=cloud_style, wall_side=wall_side)
     st.plotly_chart(fig, use_container_width=True)
     st.caption("雲＝合格領域（緑ほど Rs に余裕）、壁の線＝等高線（太黒線が Rs=2.0 の合格境界）、"
                "金ひし形＝推奨条件。ドラッグで回転・スクロールでズーム。")
