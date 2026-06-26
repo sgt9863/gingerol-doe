@@ -143,8 +143,80 @@ def d_optimal_augment(existing_coded, n_add, alpha=1.0, grid_levels=5, ridge=1e-
     return np.array(added)
 
 
-def augment_design(factors, existing_df, n_add, alpha=1.0, day=1):
-    """D最適 augment を実値つき DataFrame で返す（Day2 用、橋渡し中心点は別途）。"""
+KELVIN = 273.15   # ℃ → K（01_model と同じ。モデル基準 D最適で 1/T_K を作るため）
+
+
+def mechanistic_model_matrix(T, phi, F, Vm, L_mm):
+    """
+    メカニズムモデルの説明変数で計画行列 X を作る（実値ベース）。
+    保持: ln k = a + b/T_K + c·φ + d·φ² + e·φ/T_K  → 列 [1, 1/T_K, φ, φ², φ/T_K]
+    幅  : H = A + B/u + C·u（u=L·F/Vm）            → 列 [1/u, u]（切片は保持側と共有）
+    合わせて [1, 1/T_K, φ, φ², φ/T_K, 1/u, u] の7列。
+    ※ これらは係数について線形なので、X は係数の値に依存しない（フィット前でも作れる）。
+    """
+    T = np.asarray(T, dtype=float)
+    phi = np.asarray(phi, dtype=float)
+    F = np.asarray(F, dtype=float)
+    T_K = T + KELVIN
+    u = L_mm * F / Vm
+    ones = np.ones_like(T_K)
+    return np.column_stack([
+        ones, 1.0 / T_K, phi, phi ** 2, phi / T_K,   # 保持モデルの説明変数
+        1.0 / u, u,                                   # 幅モデルの説明変数
+    ])
+
+
+def d_optimal_augment_model(existing_real, n_add, factors, Vm, L_mm,
+                            alpha=1.0, grid_levels=5, ridge=1e-9):
+    """
+    メカニズムモデル基準の D最適 augment（実値）。
+    既存点 existing_real（列 T,phi,F）に、モデルの説明変数で det(X'X) を最大化する
+    点を貪欲に n_add 個追加する（各ステップでレバレッジ最大の候補を採用）。
+    候補は符号化格子 [-alpha,alpha]^3（grid_levels 段）を実値へ変換したもの。
+    戻り値: 追加点の実値 DataFrame（列 T,phi,F と符号化 cT,cphi,cF）。
+    レバレッジは列の線形変換に不変なので、説明変数のスケール差（1/T_K 対 u 等）は無害。
+    """
+    specs = _factor_specs(factors)
+    levels = np.linspace(-alpha, alpha, grid_levels)
+    cand_coded = np.array(list(itertools.product(levels, levels, levels)))
+    cand_real = np.column_stack([
+        coded_to_real(cand_coded[:, i], *specs[f], alpha)
+        for i, f in enumerate(FACTOR_NAMES)
+    ])
+
+    chosen = np.atleast_2d(np.asarray(existing_real, dtype=float)).copy()
+    Xc = mechanistic_model_matrix(cand_real[:, 0], cand_real[:, 1], cand_real[:, 2], Vm, L_mm)
+    added_real, added_coded = [], []
+    for _ in range(n_add):
+        X = mechanistic_model_matrix(chosen[:, 0], chosen[:, 1], chosen[:, 2], Vm, L_mm)
+        M = X.T @ X + ridge * np.eye(X.shape[1])
+        Minv = np.linalg.inv(M)
+        leverage = np.einsum("ij,jk,ik->i", Xc, Minv, Xc)
+        best = int(np.argmax(leverage))
+        added_real.append(cand_real[best])
+        added_coded.append(cand_coded[best])
+        chosen = np.vstack([chosen, cand_real[best]])
+
+    out = pd.DataFrame(added_real, columns=FACTOR_NAMES)
+    for i, f in enumerate(FACTOR_NAMES):
+        out[f"c{f}"] = [c[i] for c in added_coded]
+    return out
+
+
+def augment_design(factors, existing_df, n_add, alpha=1.0, day=1, method="model",
+                   Vm=0.24, L_mm=100.0):
+    """
+    D最適 augment を実値つき DataFrame で返す（Day2 用、橋渡し中心点は別途）。
+    method="model": メカニズムモデル基準（推奨）。Vm, L_mm が必要。
+    method="poly" : 符号化空間の2次多項式基準（従来）。
+    """
+    if method == "model":
+        existing_real = existing_df[FACTOR_NAMES].to_numpy()
+        df = d_optimal_augment_model(existing_real, n_add, factors, Vm, L_mm, alpha=alpha)
+        df.insert(0, "type", "d_optimal")
+        df.insert(0, "day", day)
+        return df
+
     existing_coded = existing_df[[f"c{f}" for f in FACTOR_NAMES]].to_numpy()
     add_coded = d_optimal_augment(existing_coded, n_add, alpha=alpha)
     df = pd.DataFrame(add_coded, columns=[f"c{f}" for f in FACTOR_NAMES])
@@ -161,13 +233,15 @@ def augment_design(factors, existing_df, n_add, alpha=1.0, day=1):
 # 計画表の組み立て（テンプレート出力）
 # ──────────────────────────────
 def build_runs_template(factors, n_center=6, alpha=1.0,
-                        n_bridge=3, n_augment=0):
+                        n_bridge=3, n_augment=0, method="model",
+                        Vm=0.24, L_mm=100.0):
     """Day1 CCD（＋任意で Day2 橋渡し中心点・D最適）を1枚に結合し、応答列を空欄で付ける。"""
     parts = [ccd_design(factors, n_center=n_center, alpha=alpha, day=0)]
     if n_bridge > 0:
         parts.append(bridge_center(factors, n_bridge=n_bridge, day=1))
     if n_augment > 0:
-        parts.append(augment_design(factors, parts[0], n_augment, alpha=alpha, day=1))
+        parts.append(augment_design(factors, parts[0], n_augment, alpha=alpha,
+                                     day=1, method=method, Vm=Vm, L_mm=L_mm))
     df = pd.concat(parts, ignore_index=True)
     df.insert(0, "run", np.arange(1, len(df) + 1))
     for col in RESPONSE_COLS:

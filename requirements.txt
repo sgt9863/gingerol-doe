@@ -4,6 +4,7 @@ scipy
 statsmodels
 pandas
 pyyaml
+openpyxl          # Excel 雛形（.xlsx）の読み書き
 
 # 可視化・フロントエンド（scripts/05 と app.py 専用。Excel 側では不要）
 plotly
