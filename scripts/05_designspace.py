@@ -41,7 +41,7 @@ def _level_color(level, lo=0.0, hi=3.0):
 
 
 def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
-                        which, n=81, day=0):
+                        which, n=81, day=0, wall_side="low"):
     """
     箱の1つの壁に「等高線（ライン）」を描く Scatter3d トレース群を返す。
     壁に垂直な因子を推奨値（rec）に固定し、残り2面内因子で Rs_min を計算、
@@ -49,6 +49,7 @@ def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
     Rs=2.0（合格境界）は太線で強調。
 
     which: "TP_floor"(F壁・T-φ面) / "TF_wall"(φ壁・T-F面) / "PF_wall"(T壁・φ-F面)
+    wall_side: "low"=下限側の壁／"high"=上限側の壁（デザインスペースに近い面を選べる）
     """
     import matplotlib
     matplotlib.use("Agg")            # 画面を使わず座標計算だけ
@@ -60,26 +61,30 @@ def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
     T_ax = np.linspace(T_lo, T_hi, n)
     P_ax = np.linspace(P_lo, P_hi, n)
     F_ax = np.linspace(F_lo, F_hi, n)
+    hi = (wall_side == "high")       # True なら上限側の壁に貼る
 
     # 面内2軸 (a_ax, b_ax) で Rs を計算し、(a,b)→3D への射影関数 to_xyz を決める
-    if which == "TP_floor":          # T-φ 面、F=推奨値固定 → F の床(low)に置く
+    if which == "TP_floor":          # T-φ 面、F=推奨値固定 → F の壁に置く
         a_ax, b_ax = T_ax, P_ax
         AA, BB = np.meshgrid(a_ax, b_ax)
         Rs = model_mod.separation(peaks, AA, BB, rec["F"], Vm, L_mm, day=day)["Rs_min"]
-        to_xyz = lambda a, b: (a, b, np.full_like(a, F_lo))
-        wall_name = f"床(F={rec['F']:.2f})"
-    elif which == "TF_wall":         # T-F 面、φ=推奨値固定 → φ の壁(low)に置く
+        F_wall = F_hi if hi else F_lo
+        to_xyz = lambda a, b: (a, b, np.full_like(a, F_wall))
+        wall_name = f"F壁(F={rec['F']:.2f})"
+    elif which == "TF_wall":         # T-F 面、φ=推奨値固定 → φ の壁に置く
         a_ax, b_ax = T_ax, F_ax
         AA, BB = np.meshgrid(a_ax, b_ax)
         Rs = model_mod.separation(peaks, AA, rec["phi"], BB, Vm, L_mm, day=day)["Rs_min"]
-        to_xyz = lambda a, b: (a, np.full_like(a, P_lo), b)
-        wall_name = f"奥(φ={rec['phi']:.3f})"
-    else:                            # "PF_wall": φ-F 面、T=推奨値固定 → T の壁(low)に置く
+        P_wall = P_hi if hi else P_lo
+        to_xyz = lambda a, b: (a, np.full_like(a, P_wall), b)
+        wall_name = f"φ壁(φ={rec['phi']:.3f})"
+    else:                            # "PF_wall": φ-F 面、T=推奨値固定 → T の壁に置く
         a_ax, b_ax = P_ax, F_ax
         AA, BB = np.meshgrid(a_ax, b_ax)
         Rs = model_mod.separation(peaks, rec["T"], AA, BB, Vm, L_mm, day=day)["Rs_min"]
-        to_xyz = lambda a, b: (np.full_like(a, T_lo), a, b)
-        wall_name = f"横(T={rec['T']:.1f})"
+        T_wall = T_hi if hi else T_lo
+        to_xyz = lambda a, b: (np.full_like(a, T_wall), a, b)
+        wall_name = f"T壁(T={rec['T']:.1f})"
 
     # matplotlib で等値線の座標（segments）を取得（描画はしない）
     fig_tmp, ax_tmp = plt.subplots()
@@ -131,9 +136,22 @@ def _designspace_volume_trace(grid, criteria_Rs=2.0):
     )
 
 
+def _auto_wall_side(grid, factor_key):
+    """合格領域がどちら寄りかで壁の置き場所を自動判定。
+    合格点のその因子の重心が範囲中央より上なら上限側、下なら下限側に壁を置く
+    （等高線の壁をデザインスペースの近くに来させて見やすくする）。"""
+    mask = grid["pass_mask"]
+    if not mask.any():
+        return "low"
+    vals = grid[factor_key][mask]
+    mid = 0.5 * (grid[factor_key].min() + grid[factor_key].max())
+    return "high" if vals.mean() >= mid else "low"
+
+
 def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                         model_mod=None, peaks=None, factors=None,
-                        Vm=None, L_mm=None, day=0, cloud_style="volume"):
+                        Vm=None, L_mm=None, day=0, cloud_style="volume",
+                        wall_side="auto"):
     """
     04_optimize.evaluate_grid の結果と推奨条件 rec から
     対話的 3D 図を作成し plotly Figure を返す。
@@ -142,6 +160,10 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
       "volume"  … 無段階の半透明ボリューム（go.Volume。WebGL 必須）
       "scatter" … 合格点の散布点（go.Scatter3d）
     壁:   model_mod 等が渡されれば、各壁に「垂直因子＝推奨値固定」の Rs 等高線を投影。
+    wall_side: 等高線の壁の置き場所。
+      "auto" … デザインスペースに近い面へ各壁を自動配置（既定・見やすい）
+      "low"  … すべて下限側（手前）の壁に固定
+      "high" … すべて上限側（奥）の壁に固定
 
     grid : evaluate_grid() の戻り値 dict（T, phi, F, Rs_min, pass_mask, ...）
     rec  : max_margin_point() の戻り値 dict（T, phi, F, margin）または None
@@ -149,18 +171,21 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
     """
     mask = grid["pass_mask"]
     Rs_th = 2.0
-    if model_mod is not None and peaks is not None:
-        pass  # criteria は grid 計算時に既に反映済み。境界は Rs=2.0 を既定とする
 
     fig = go.Figure()
 
     # ── 各壁に等高線を投影（垂直な因子を推奨値に固定）──
+    # which と「その壁に垂直な因子キー」の対応（auto 配置の判定に使う）
+    perp_key = {"TP_floor": "F", "TF_wall": "phi", "PF_wall": "T"}
     can_walls = (rec is not None and model_mod is not None and peaks is not None
                  and factors is not None and Vm is not None and L_mm is not None)
     if can_walls:
         for which in ("TP_floor", "TF_wall", "PF_wall"):
+            side = (_auto_wall_side(grid, perp_key[which])
+                    if wall_side == "auto" else wall_side)
             for tr in _wall_contour_lines(
-                    model_mod, peaks, factors, Vm, L_mm, rec, which, day=day):
+                    model_mod, peaks, factors, Vm, L_mm, rec, which,
+                    day=day, wall_side=side):
                 fig.add_trace(tr)
 
     # ── デザインスペースの雲 ──
