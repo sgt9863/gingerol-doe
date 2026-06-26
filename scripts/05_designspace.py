@@ -50,7 +50,8 @@ def _level_color(level, lo=0.0, hi=3.0):
 
 
 def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
-                        which, n=81, day=0, wall_side="low", levels=None):
+                        which, n=81, day=0, wall_side="low", levels=None,
+                        color_hi=3.0):
     """
     箱の1つの壁に「等高線（ライン）」を描く Scatter3d トレース群を返す。
     壁に垂直な因子を推奨値（rec）に固定し、残り2面内因子で Rs_min を計算、
@@ -104,7 +105,7 @@ def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
         if not segs:
             continue
         is_pass = abs(level - 2.0) < 1e-9
-        color = "black" if is_pass else _level_color(level)
+        color = "black" if is_pass else _level_color(level, hi=max(color_hi, 2.5))
         width = 6 if is_pass else 2.5
         for seg in segs:
             a, b = seg[:, 0], seg[:, 1]
@@ -167,7 +168,7 @@ def _auto_wall_side(grid, factor_key):
 def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                         model_mod=None, peaks=None, factors=None,
                         Vm=None, L_mm=None, day=0, cloud_style="volume",
-                        wall_side="auto", contour_step=0.5, surface_count=30):
+                        wall_side="auto", n_contours=5, surface_count=30):
     """
     04_optimize.evaluate_grid の結果と推奨条件 rec から
     対話的 3D 図を作成し plotly Figure を返す。
@@ -187,6 +188,9 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
     """
     mask = grid["pass_mask"]
     Rs_th = 2.0
+    # Rs 最大値を自動設定: 雲は合格域内の最大、壁の等高線は格子全体の最大に合わせる
+    ds_rs_max = float(grid["Rs_min"][mask].max()) if mask.any() else 3.0
+    global_rs_max = float(grid["Rs_min"].max())
 
     fig = go.Figure()
 
@@ -201,13 +205,16 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
 
     can_walls = (rec is not None and model_mod is not None and peaks is not None
                  and factors is not None and Vm is not None and L_mm is not None)
-    contour_levels = build_levels(contour_step)
+    # 等高線はデザインスペース内（合格境界 Rs=2.0 〜 合格域の最大）を n_contours 本に等分
+    rs_hi = ds_rs_max if ds_rs_max > Rs_th + 1e-6 else Rs_th + 0.5
+    contour_levels = list(np.round(np.linspace(Rs_th, rs_hi, max(2, n_contours)), 4))
     if can_walls:
         for which in ("TP_floor", "TF_wall", "PF_wall"):
             side = _resolve_side(perp_key[which])
             for tr in _wall_contour_lines(
                     model_mod, peaks, factors, Vm, L_mm, rec, which,
-                    day=day, wall_side=side, levels=contour_levels):
+                    day=day, wall_side=side, levels=contour_levels,
+                    color_hi=ds_rs_max):
                 fig.add_trace(tr)
 
     # ── デザインスペースの雲 ──
@@ -216,12 +223,13 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
             fig.add_trace(_designspace_volume_trace(grid, criteria_Rs=Rs_th,
                                                     surface_count=surface_count))
         else:
+            cmax = ds_rs_max if ds_rs_max > Rs_th + 1e-6 else Rs_th + 0.5
             fig.add_trace(go.Scatter3d(
                 x=grid["T"][mask], y=grid["phi"][mask], z=grid["F"][mask],
                 mode="markers",
                 marker=dict(
                     size=4, color=grid["Rs_min"][mask],
-                    colorscale="Viridis", cmin=0.0, cmax=3.0, opacity=0.8,
+                    colorscale="Viridis", cmin=Rs_th, cmax=cmax, opacity=0.8,
                     colorbar=dict(title="Rs_min", thickness=15, len=0.6),
                     line=dict(width=0),
                 ),
