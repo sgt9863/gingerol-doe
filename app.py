@@ -140,8 +140,8 @@ st.sidebar.subheader("実験計画")
 n_center = st.sidebar.slider("CCD 中心点の数", 3, 8, 6)
 n_augment = st.sidebar.slider("D最適 追加点の数", 0, 16, 8)
 n_bridge = st.sidebar.slider("Day2 橋渡し中心点", 0, 5, 3)
-# デザインスペースの計算解像度。滑らかさと速度のバランスで固定（KDTree により高速）。
-grid_n = 51
+grid_n = st.sidebar.slider("デザインスペース格子の細かさ（計算解像度・大=滑らか/やや重い）",
+                           11, 71, 51, step=2)
 
 
 def run_fit_and_designspace(df, header_prefix=""):
