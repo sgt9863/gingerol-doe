@@ -29,15 +29,30 @@ except ImportError as e:
 # ──────────────────────────────
 # 3D デザインスペースプロット
 # ──────────────────────────────
-def _wall_contour_surface(model_mod, peaks, factors, Vm, L_mm, rec,
-                          which, n=41, day=0):
+WALL_LEVELS = [1.0, 1.5, 2.0, 2.5, 3.0]   # 壁に描く Rs_min の等高線レベル
+
+
+def _level_color(level, lo=0.0, hi=3.0):
+    """Rs レベル → RdYlGn 上の色（赤=低→緑=高）。plotly のサンプラを使う。"""
+    from plotly.colors import sample_colorscale
+    t = (level - lo) / (hi - lo)
+    return sample_colorscale("RdYlGn", [max(0.0, min(1.0, t))])[0]
+
+
+def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
+                        which, n=81, day=0):
     """
-    箱の1つの壁に貼る等高線サーフェスを作る。
-    壁に垂直な因子を推奨値（rec）に固定し、残り2因子で Rs_min を計算、
-    壁の位置（その因子の low 側）に平らな go.Surface として置く。
+    箱の1つの壁に「等高線（ライン）」を描く Scatter3d トレース群を返す。
+    壁に垂直な因子を推奨値（rec）に固定し、残り2面内因子で Rs_min を計算、
+    matplotlib で等値線の座標を取り出して壁の平面に 3D ラインとして配置する。
+    Rs=2.0（合格境界）は太線で強調。
 
     which: "TP_floor"(F壁・T-φ面) / "TF_wall"(φ壁・T-F面) / "PF_wall"(T壁・φ-F面)
     """
+    import matplotlib
+    matplotlib.use("Agg")            # 画面を使わず座標計算だけ
+    import matplotlib.pyplot as plt
+
     T_lo, T_hi = factors["T"]["low"], factors["T"]["high"]
     P_lo, P_hi = factors["phi"]["low"], factors["phi"]["high"]
     F_lo, F_hi = factors["F"]["low"], factors["F"]["high"]
@@ -45,33 +60,49 @@ def _wall_contour_surface(model_mod, peaks, factors, Vm, L_mm, rec,
     P_ax = np.linspace(P_lo, P_hi, n)
     F_ax = np.linspace(F_lo, F_hi, n)
 
-    if which == "TP_floor":          # T-φ 面、F=推奨値固定 → F の床に置く
-        TT, PP = np.meshgrid(T_ax, P_ax)
-        FF = np.full_like(TT, rec["F"])
-        Rs = model_mod.separation(peaks, TT, PP, FF, Vm, L_mm, day=day)["Rs_min"]
-        X, Y, Z = TT, PP, np.full_like(TT, F_lo)
-    elif which == "TF_wall":         # T-F 面、φ=推奨値固定 → φ の壁に置く
-        TT, FF = np.meshgrid(T_ax, F_ax)
-        PP = np.full_like(TT, rec["phi"])
-        Rs = model_mod.separation(peaks, TT, PP, FF, Vm, L_mm, day=day)["Rs_min"]
-        X, Y, Z = TT, np.full_like(TT, P_lo), FF
-    else:                            # "PF_wall": φ-F 面、T=推奨値固定 → T の壁に置く
-        PP, FF = np.meshgrid(P_ax, F_ax)
-        TT = np.full_like(PP, rec["T"])
-        Rs = model_mod.separation(peaks, TT, PP, FF, Vm, L_mm, day=day)["Rs_min"]
-        X, Y, Z = np.full_like(PP, T_lo), PP, FF
+    # 面内2軸 (a_ax, b_ax) で Rs を計算し、(a,b)→3D への射影関数 to_xyz を決める
+    if which == "TP_floor":          # T-φ 面、F=推奨値固定 → F の床(low)に置く
+        a_ax, b_ax = T_ax, P_ax
+        AA, BB = np.meshgrid(a_ax, b_ax)
+        Rs = model_mod.separation(peaks, AA, BB, rec["F"], Vm, L_mm, day=day)["Rs_min"]
+        to_xyz = lambda a, b: (a, b, np.full_like(a, F_lo))
+        wall_name = f"床(F={rec['F']:.2f})"
+    elif which == "TF_wall":         # T-F 面、φ=推奨値固定 → φ の壁(low)に置く
+        a_ax, b_ax = T_ax, F_ax
+        AA, BB = np.meshgrid(a_ax, b_ax)
+        Rs = model_mod.separation(peaks, AA, rec["phi"], BB, Vm, L_mm, day=day)["Rs_min"]
+        to_xyz = lambda a, b: (a, np.full_like(a, P_lo), b)
+        wall_name = f"奥(φ={rec['phi']:.3f})"
+    else:                            # "PF_wall": φ-F 面、T=推奨値固定 → T の壁(low)に置く
+        a_ax, b_ax = P_ax, F_ax
+        AA, BB = np.meshgrid(a_ax, b_ax)
+        Rs = model_mod.separation(peaks, rec["T"], AA, BB, Vm, L_mm, day=day)["Rs_min"]
+        to_xyz = lambda a, b: (np.full_like(a, T_lo), a, b)
+        wall_name = f"横(T={rec['T']:.1f})"
 
-    return go.Surface(
-        x=X, y=Y, z=Z, surfacecolor=Rs,
-        colorscale="RdYlGn", cmin=0.0, cmax=3.0,
-        showscale=False, opacity=0.85,
-        contours=dict(
-            x=dict(highlight=False), y=dict(highlight=False),
-            z=dict(highlight=False),
-        ),
-        hovertemplate="Rs_min=%{surfacecolor:.2f}<extra>壁の等高線</extra>",
-        name="壁等高線",
-    )
+    # matplotlib で等値線の座標（segments）を取得（描画はしない）
+    fig_tmp, ax_tmp = plt.subplots()
+    cs = ax_tmp.contour(AA, BB, Rs, levels=WALL_LEVELS)
+    traces = []
+    for level, segs in zip(cs.levels, cs.allsegs):
+        if not segs:
+            continue
+        is_pass = abs(level - 2.0) < 1e-9
+        color = "black" if is_pass else _level_color(level)
+        width = 6 if is_pass else 2.5
+        for seg in segs:
+            a, b = seg[:, 0], seg[:, 1]
+            x, y, z = to_xyz(a, b)
+            traces.append(go.Scatter3d(
+                x=x, y=y, z=z, mode="lines",
+                line=dict(color=color, width=width),
+                name=(f"{wall_name} Rs={level:g}"
+                      + ("（合格境界）" if is_pass else "")),
+                showlegend=False,
+                hovertemplate=f"Rs_min={level:g}<extra>{wall_name}</extra>",
+            ))
+    plt.close(fig_tmp)
+    return traces
 
 
 def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
@@ -105,8 +136,9 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                  and factors is not None and Vm is not None and L_mm is not None)
     if can_walls:
         for which in ("TP_floor", "TF_wall", "PF_wall"):
-            fig.add_trace(_wall_contour_surface(
-                model_mod, peaks, factors, Vm, L_mm, rec, which, day=day))
+            for tr in _wall_contour_lines(
+                    model_mod, peaks, factors, Vm, L_mm, rec, which, day=day):
+                fig.add_trace(tr)
 
     # ── 不合格点（背景として薄く）──
     if len(T_fail) > 0:
