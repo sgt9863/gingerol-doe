@@ -1,0 +1,40 @@
+# config.example.yaml — 「毎回変わる設定」の雛形
+# 別成分・別カラムで使い回すときは、ここだけ書き換える。
+# （固定の数理モデルや計画生成ロジックは scripts/ 側にある）
+# ※ 値は仮。指摘2以降の議論で確定する。
+
+project: 10-gingerol
+
+# --- カラム（固定済み）---
+column:
+  Vm_mL: null        # 保持されない物質を1回注入して Vm = t0 * F で確定（例 0.72）
+  length_mm: null    # カラム長
+  id_mm: null        # 内径
+  particle_um: null  # 粒径
+
+# --- 因子と探索範囲（low / center / high）---
+# center は現行条件。範囲は指摘4・6で確定。
+factors:
+  T_degC:  { low: null, center: 75,  high: null }  # カラム温度（ACN沸点82℃に注意）
+  F_mLmin: { low: null, center: 0.6, high: null }  # 流速（背圧上限に注意）
+  phi_ACN: { low: null, center: 0.40, high: null } # ACN体積分率（0–1）
+
+# --- ピーク定義（溶出順でなく化合物の同一性で管理）---
+peaks:
+  - { name: interferer_1, role: interferer }
+  - { name: gingerol_10,  role: target }
+  - { name: interferer_2, role: interferer }
+
+# --- 分離度／デザインスペース ---
+resolution:
+  rs_threshold: 1.5   # この値以上を満たす領域をデザインスペースとする（指摘2で確定）
+
+# --- 実験計画 ---
+doe:
+  design: ccd         # ccd → 後で d_optimal を逐次追加（指摘5）
+  augment: d_optimal
+
+# --- 入出力 ---
+io:
+  input_excel: data/runs.xlsx     # 実測データ（条件→各ピークの保持時間・幅）
+  output_dir: outputs

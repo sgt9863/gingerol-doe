@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# 解析の生成物（必要になったら外す）
+outputs/*
+!outputs/README.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
