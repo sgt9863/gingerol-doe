@@ -1,40 +1,83 @@
-# config.example.yaml — 「毎回変わる設定」の雛形
-# 別成分・別カラムで使い回すときは、ここだけ書き換える。
-# （固定の数理モデルや計画生成ロジックは scripts/ 側にある）
-# ※ 値は仮。指摘2以降の議論で確定する。
+# config.example.yaml
+# 使い方：このファイルを config.yaml にコピーし、実際の値に書き換えて使う。
+# 変わる部分（因子範囲・ピーク定義・カラム情報・合格条件・実験設計）をここに集約。
+# 固定ロジックは scripts/ に置く（このファイルを変えるだけで別化合物に転用できる）。
 
-project: 10-gingerol
-
-# --- カラム（固定済み）---
-column:
-  Vm_mL: null        # 保持されない物質を1回注入して Vm = t0 * F で確定（例 0.72）
-  length_mm: null    # カラム長
-  id_mm: null        # 内径
-  particle_um: null  # 粒径
-
-# --- 因子と探索範囲（low / center / high）---
-# center は現行条件。範囲は指摘4・6で確定。
-factors:
-  T_degC:  { low: null, center: 75,  high: null }  # カラム温度（ACN沸点82℃に注意）
-  F_mLmin: { low: null, center: 0.6, high: null }  # 流速（背圧上限に注意）
-  phi_ACN: { low: null, center: 0.40, high: null } # ACN体積分率（0–1）
-
-# --- ピーク定義（溶出順でなく化合物の同一性で管理）---
+# ──────────────────────────────
+# ピーク定義
+# ──────────────────────────────
 peaks:
-  - { name: interferer_1, role: interferer }
-  - { name: gingerol_10,  role: target }
-  - { name: interferer_2, role: interferer }
+  target: TP                  # 目的ピーク名
+  interfering: [IP1, IP2]     # 夾雑ピーク名（溶出順不問。クロスオーバー対応済み）
+  elution_order_nominal:      # 現行条件（中水準）での溶出順（モデルの初期値チェック用）
+    - IP1
+    - TP
+    - IP2
 
-# --- 分離度／デザインスペース ---
-resolution:
-  rs_threshold: 1.5   # この値以上を満たす領域をデザインスペースとする（指摘2で確定）
+# ──────────────────────────────
+# カラム情報
+# ──────────────────────────────
+column:
+  name: "Waters ACQUITY UPLC BEH C8"
+  length_mm: 100              # カラム長 [mm]
+  id_mm: 2.1                  # 内径 [mm]
+  dp_um: 1.7                  # 粒径 [µm]
+  porosity: 0.68              # 全空隙率（BEH 全多孔性粒子の概算値）
+  Vm_mL: 0.24                 # カラム死容量 [mL]（幾何推算: 0.68 × π r² L）
+                              # 厳密化: 不保持物質(ウラシル等)を注入し Vm = t0 × F で実測
+  peak_width_definition: half_height  # ピーク幅の定義（半値幅 W_h）
+                                      # 理論段数換算: N = 5.54 × (t_R / W_h)²
 
-# --- 実験計画 ---
-doe:
-  design: ccd         # ccd → 後で d_optimal を逐次追加（指摘5）
-  augment: d_optimal
+# ──────────────────────────────
+# 実験因子の範囲（探索範囲）
+# ──────────────────────────────
+# 中水準は現行条件より低温・高ACN側にシフト（現行: T=75℃ / phi=0.40 / F=0.6）
+# F の水準は t_R = Vm*(1+k)/F の反比例から計算。
+#   実測後の更新式: F_low = Vm*(1+k_center)/tR_high, F_high = Vm*(1+k_center)/tR_low
+factors:
+  T:
+    low: 40          # [°C]
+    center: 50       # [°C]  中水準
+    high: 60         # [°C]
+    unit: "degC"
+  phi:
+    low: 0.38        # ACN 体積分率（= 38% ACN）
+    center: 0.45     # ACN 体積分率（= 45% ACN）
+    high: 0.52       # ACN 体積分率（= 52% ACN）
+    unit: "ACN_fraction"
+  F:
+    low: 0.4         # [mL/min]
+    center: 0.6      # [mL/min]
+    high: 0.8        # [mL/min]
+    unit: "mL_per_min"
 
-# --- 入出力 ---
+# ──────────────────────────────
+# デザインスペースの合格条件
+# ──────────────────────────────
+acceptance_criteria:
+  Rs_min: 2.0        # min{Rs1, Rs2} の下限（ICH Q8 ベース）
+  tR_TP_max: 7.5     # 目的ピーク保持時間の上限 [分]（ばらつき込みの分析時間制約）
+  tR_IP2_max: 10.0   # 最遅溶出ピーク保持時間の上限 [分]（洗浄ステップ開始時間）
+
+# ──────────────────────────────
+# 実験計画（DoE）の設定
+# ──────────────────────────────
+design:
+  day1:
+    type: ccd              # 中心複合計画（Central Composite Design）
+    center_points: 6       # 中心点繰り返し数（純誤差推定・湾曲検定用、自由度5）
+    # 合計: 頂点 2³=8 + 軸上点 6 + 中心点 6 = 20 本
+  day2:
+    type: d_optimal        # D 最適（情報が薄い領域を狙い打ち）
+    bridge_center_points: 3  # Day2 冒頭に入れる中心点（Day1↔Day2 の日間差橋渡し用）
+  blocking: true           # 別日実施 → 日間変動をブロック項で補正
+                           # モデル: ln k = a + b/T + c·φ + δ·day
+  budget_per_day: 50       # 1日あたり実験本数の上限
+  run_time_min: 22         # 1注入あたりの所要時間 [分]（洗浄込み）
+
+# ──────────────────────────────
+# 入出力
+# ──────────────────────────────
 io:
-  input_excel: data/runs.xlsx     # 実測データ（条件→各ピークの保持時間・幅）
-  output_dir: outputs
+  input_excel: data/runs.xlsx   # 実測データ（各条件の T/phi/F/day と3ピークの t_R・W_h）
+  output_dir: outputs           # 推奨条件・3D html・フィット残差を出力するフォルダ
