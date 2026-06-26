@@ -1,7 +1,8 @@
-# SKILL.md（骨格）— HPLC 条件最適化 ＆ デザインスペース3D
+# SKILL.md — HPLC 条件最適化 ＆ デザインスペース3D
 
-> これは将来 `.claude/skills/` に切り出す skill の下書き。
-> いまは見出しだけ。各 scripts/ を実装するたびに該当節を埋める。
+> **切り出し済み**：実体は `.claude/skills/hplc-design-space/`（frontmatter 付き SKILL.md ＋
+> 固定ロジック scripts/01〜05 ＋ config テンプレ ＋ app.py を自己完結でパッケージ）。
+> 別化合物へは `config.yaml` の差し替えだけで転用できる。以下は本リポジトリ内の作業用メモ。
 
 ## このskillは何をするか
 HPLC のカラム温度・流速・溶媒比の3条件を、メカニズムモデル（保持＝ファントホッフ×LSS、幅＝van Deemter）でフィットし、分離度 Rs を最大化・かつブレに強い**デザインスペース**を3Dで可視化する。

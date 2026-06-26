@@ -182,9 +182,10 @@
 
 ## 全指摘の確定状況
 
-指摘1〜7 ＋ Excel連携 すべて確定。**実装フェーズも一巡完了**：config.example.yaml ＋
+指摘1〜7 ＋ Excel連携 すべて確定。**実装フェーズ一巡完了**：config.example.yaml ＋
 scripts/01〜05 ＋ app.py（Streamlit・タブ式の正規フロー）＋ requirements.txt が動作。
-残りは skill 化（`.claude/skills/` への切り出し）と SKILL.md の記述。
+**skill 化も完了**：`.claude/skills/hplc-design-space/`（固定ロジック・config テンプレ・app・SKILL.md frontmatter）に
+自己完結で切り出し済み。別化合物へは config.yaml の差し替えだけで転用できる。
 
 ---
 
@@ -218,3 +219,5 @@ scripts/01〜05 ＋ app.py（Streamlit・タブ式の正規フロー）＋ requi
 | 2026-06-26 | 雲の色スケールをデザインスペース内のRs範囲に引き伸ばし（内部の色変化を強調）。失格域は無色透明 |
 | 2026-06-26 | 等高線はデザインスペース内（Rs=2.0〜合格域最大）の5本固定。Rs最大値は自動設定 |
 | 2026-06-26 | 外挿オプション追加（評価格子だけ因子範囲外へ拡張）。推奨条件は安全のため検証済みの元範囲内からのみ選ぶ |
+| 2026-06-26 | 外挿時に検証範囲を破線の箱で表示（外挿域と見分け）。3Dに自動回転ボタン（frames+animate）追加 |
+| 2026-06-26 | skill 化完了。`.claude/skills/hplc-design-space/` に固定ロジック一式＋config テンプレ＋SKILL.md(frontmatter) を自己完結で切り出し |
