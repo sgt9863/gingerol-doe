@@ -59,21 +59,26 @@ design:
 3. **フィット** — `scripts/03_fit.py`（k(T,φ) ×3、W(T,φ,F) ×3、day オフセット推定）（未実装）
 4. **最適化** — `scripts/04_optimize.py`（Rs=min{Rs1,Rs2} 最大／デザインスペース判定）（未実装）
 5. **3D描画** — `scripts/05_designspace.py`（plotly html）（未実装）
+6. **Web アプリ** — `app.py`（Streamlit。01〜05 を呼ぶだけの薄い入口）（未実装）
 
 ## 出力
 - 推奨条件（最も頑健な点）と、Rs≥閾値のデザインスペース 3D プロット（plotly html）
 - Excel 側プレビュー：matplotlib の静止画（3D / 2D 等高線）
 
-## 実行環境：Python in Excel ＋ ハイブリッド
-- ユーザー作業は **Python in Excel**（セル内 Python）で行う
-- 制約：自作モジュール import 不可・ローカルファイル出力不可・既定ライブラリのみ
-  （numpy / pandas / scipy / statsmodels / matplotlib）
-- 役割分担：
-  - フィット・最適化・デザインスペース判定・簡易プレビュー → Python in Excel
-  - 対話的 3D（plotly html、報告用） → 通常 Python 環境で `scripts/05` を1回実行
-- **依存ライブラリ制約**：中核ロジック（01〜04）は numpy/scipy/statsmodels/pandas のみで書く
-  → 同じコードを「モジュール import」「Excel セルに貼付」の両方で使える（二重管理回避）
-  → plotly は 05 専用
+## 実行環境：Excel と Streamlit の両対応
+中核ロジックを numpy 系のみで書くことで、2つの入口を1つのロジックで支える。
+
+| 入口 | 用途 | 3D 可視化 |
+|------|------|----------|
+| **Python in Excel** | Excel に馴染んだ作業・手元計算 | matplotlib 静止画 |
+| **Streamlit Web アプリ**（`app.py`） | ボタン操作・報告で見せる | plotly（回転可）|
+
+- **依存ライブラリ制約**：中核ロジック（scripts/01〜04）は numpy/scipy/statsmodels/pandas のみで書く
+  → 同じコードを「モジュール import」「Excel セルに貼付」「Streamlit から呼ぶ」全てで使える
+  → plotly は scripts/05 と Streamlit 専用
+- Python in Excel の制約（自作モジュール import 不可・ローカルファイル出力不可）は
+  Streamlit 側で解消される（対話的3D・ファイルDLが可能）
+- Streamlit 起動：手元PCで `streamlit run app.py`（または Community Cloud に配置）
 
 ## 再利用のための分離方針
 - **変わる部分** → `config.yaml`（因子名・範囲・ピーク数・Vm・合格条件・設計設定）
