@@ -124,11 +124,35 @@
 - 現行条件での反復測定は不要。純誤差は CCD の中心点6本で取得する
 - 現行条件の実測は「モデルが既知点を通るかのサニティチェック／初期値の当たり」用で、取れれば1回で十分（必須でない）
 
+### Excel×Python 連携方式（確定）
+
+**方式：Python in Excel ＋ ハイブリッド**
+
+ユーザーは Python in Excel（Microsoft 純正、セル内 Python）で作業したい。
+ただし Python in Excel には制約があるため、以下のハイブリッド構成にする。
+
+**Python in Excel の制約（確認済み）**
+- 自作モジュールを import 不可 → コードはセルに貼り付ける形
+- ローカルファイルにアクセス不可（クラウドサンドボックス）→ plotly HTML をファイル出力できない
+- 既定で使える：numpy / pandas / scipy / statsmodels / matplotlib（フィット・最適化は問題なし）
+
+**役割分担**
+| 工程 | 実行場所 |
+|------|---------|
+| データ入力・モデルフィット・最適化・デザインスペース判定 | Python in Excel（セル）|
+| 簡易プレビュー（静止画 3D / 2D 等高線） | Python in Excel（matplotlib）|
+| 最終的な対話的 3D デザインスペース（plotly HTML、回転可・報告用） | 通常 Python 環境で scripts/05 を1回走らせる |
+
+**実装方針（重要）**
+- `scripts/` の中核ロジックは **numpy/scipy/statsmodels/pandas のみ**で書く
+  → 同じコードを「通常環境でモジュール import」「Python in Excel のセルに貼付」の両方で使える（二重管理回避）
+- plotly は最終 3D 出力(scripts/05)専用。Excel 側は matplotlib のみ
+
 ---
 
-## まだ未決（このあと議論する）
+## 全指摘の確定状況
 
-- **DoE 方針 / Excel×Python 連携方式**
+指摘1〜7 ＋ Excel連携 すべて確定。次フェーズは scripts/ と config.example.yaml の実装。
 
 ---
 
@@ -142,3 +166,4 @@
 | 2026-06-26 | 指摘5（実験本数）を確定。CCD(20本, 中心点6)→D最適 augment、別日ブロッキング採用、1日50本上限 |
 | 2026-06-26 | 社内報告用にモデル根拠文献集 literature.md を作成（ファントホッフ/LSS/van Deemter/ICH Q8/RSM/gingerol） |
 | 2026-06-26 | 指摘7（実測リスト）を確定。半値幅採用、V_m幾何推算0.24mL、現行反復は中心点で代替し不要 |
+| 2026-06-26 | Excel連携を確定。Python in Excel＋ハイブリッド（中核はnumpy系のみ／plotly 3Dは別環境）。全指摘確定 |
