@@ -37,7 +37,7 @@ acceptance_criteria:
 
 design:
   type: ccd            # 初回は中心複合計画
-  center_points: 4     # 中心点繰り返し（誤差推定用）
+  center_points: 6     # 中心点繰り返し（純誤差推定・湾曲検定用）
   budget_per_day: 50   # 1日あたり実験本数上限
   run_time_min: 22     # 1注入の所要時間 [分]（洗浄込み）
   blocking: true       # CCD と D最適を別日に実施 → 日間変動をブロック項で補正
@@ -49,7 +49,7 @@ design:
    - 保持 `ln k = a + b/T + c·φ (+ δ·day)`、幅 `W(T,φ,F)` を各ピーク3本
    - 別日実施に備え day をブロック項として持つ
 2. **実験計画生成** — `scripts/02_design.py`（CCD → D最適 逐次、別日ブロッキング）（未実装）
-   - Day1: CCD（頂点8+軸6+中心4=18本）/ Day2: D最適 augment + 中心点3本（橋渡し）
+   - Day1: CCD（頂点8+軸6+中心6=20本）/ Day2: D最適 augment + 中心点3本（橋渡し）
 3. **フィット** — `scripts/03_fit.py`（k(T,φ) ×3、W(T,φ,F) ×3、day オフセット推定）（未実装）
 4. **最適化** — `scripts/04_optimize.py`（Rs=min{Rs1,Rs2} 最大／デザインスペース判定）（未実装）
 5. **3D描画** — `scripts/05_designspace.py`（plotly html）（未実装）
