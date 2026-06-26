@@ -28,18 +28,19 @@ factors:
   # 実測後の更新式: F_low = Vm*(1+k_center)/tR_high, F_high = Vm*(1+k_center)/tR_low
 
 column:
-  Vm: 0.24         # カラム死容量 [mL]。幾何推算 Vm ≈ 0.68 × π r² L（2.1×100mm）
+  Vm: 0.23         # カラム死容量 [mL]。幾何推算 Vm ≈ 0.66 × π r² L（2.1×100mm）
                    # 厳密化するなら不保持物質(ウラシル等)注入で t_0 実測 → Vm = t_0 × F
   length_mm: 100   # カラム長
   id_mm: 2.1       # 内径
   dp_um: 1.7       # 粒径
-  porosity: 0.68   # 全空隙率（BEH 全多孔性の概算値）
+  porosity: 0.66   # 全空隙率（Waters 推奨の概算値・BEH 全多孔性）
   peak_width: half_height  # ピーク幅の定義（半値幅 W_h、N = 5.54·(t_R/W_h)²）
 
 acceptance_criteria:
   Rs_min: 2.0      # min{Rs1, Rs2} の下限
   tR_TP_max: 7.5   # 目的ピーク保持時間の上限 [分]
-  tR_IP2_max: 10.0 # 最遅溶出ピーク保持時間の上限 [分]（洗浄ステップ開始時間）
+  tR_last_max: null # 最遅ピークの上限 [分]。データ取り段階の洗浄前制約であり
+                    # デザインスペース合否には含めない（既定 null。課す場合のみ数値）
 
 design:
   type: ccd            # 初回は中心複合計画
@@ -47,22 +48,24 @@ design:
   budget_per_day: 50   # 1日あたり実験本数上限
   run_time_min: 22     # 1注入の所要時間 [分]（洗浄込み）
   blocking: true       # CCD と D最適を別日に実施 → 日間変動をブロック項で補正
-  augment: d_optimal   # 2日目以降の追加実験は D最適
+  augment: d_optimal   # 2日目以降の追加実験は D最適（メカニズムモデル基準。
+                       # (A)係数精度 と (B)Rs境界標的 の2基準をアプリで選択可）
 ```
 
-## 手順（scripts の段階）
-1. **モデル設計** — `scripts/01_model.py`（未実装）
-   - 保持 `ln k = a + b/T + c·φ (+ δ·day)`、幅 `W(T,φ,F)` を各ピーク3本
-   - 別日実施に備え day をブロック項として持つ
-2. **実験計画生成** — `scripts/02_design.py`（CCD → D最適 逐次、別日ブロッキング）（未実装）
+## 手順（scripts の段階）※すべて実装済み
+1. **モデル設計** — `scripts/01_model.py`
+   - 保持 `ln k = a + b/T_K + c·φ + d·φ² + e·φ/T_K (+ δ·day)`、幅 `W(T,φ,F)`（van Deemter）を各ピーク3本
+   - Rs はクロスオーバー対応で化合物同一性により定義（絶対値）
+2. **実験計画生成** — `scripts/02_design.py`（CCD → D最適 逐次、別日ブロッキング）
    - Day1: CCD（頂点8+軸6+中心6=20本）/ Day2: D最適 augment + 中心点3本（橋渡し）
-3. **フィット** — `scripts/03_fit.py`（k(T,φ) ×3、W(T,φ,F) ×3、day オフセット推定）（未実装）
-4. **最適化** — `scripts/04_optimize.py`（Rs=min{Rs1,Rs2} 最大／デザインスペース判定）（未実装）
-5. **3D描画** — `scripts/05_designspace.py`（plotly html）（未実装）
-6. **Web アプリ** — `app.py`（Streamlit。01〜05 を呼ぶだけの薄い入口）（未実装）
+   - D最適はメカニズムモデル基準。(A)係数精度／(B)Rs境界標的の局所D最適 を選択可
+3. **フィット** — `scripts/03_fit.py`（保持 ×3、幅 ×3、day オフセット推定。予測スケールの RMSE で評価）
+4. **最適化** — `scripts/04_optimize.py`（デザインスペース判定＝Rs_min≥2.0 かつ t_R(TP)≤7.5／最大余裕点。崖に範囲端も含む。cKDTree で高速化）
+5. **3D描画** — `scripts/05_designspace.py`（plotly。雲＝go.Volume／壁にRs等高線5本／Viridis配色）
+6. **Web アプリ** — `app.py`（Streamlit。タブ式：①CCD計画→②Day1フィット→③D最適→④最終解析＋デモ。Excel雛形DL）
 
 ## 出力
-- 推奨条件（最も頑健な点）と、Rs≥閾値のデザインスペース 3D プロット（plotly html）
+- 推奨条件（最大余裕点）と、デザインスペースの 3D プロット（plotly html）。推奨条件CSVもDL可
 - Excel 側プレビュー：matplotlib の静止画（3D / 2D 等高線）
 
 ## 実行環境：Excel と Streamlit の両対応
