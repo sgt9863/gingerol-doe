@@ -129,7 +129,7 @@ id_mm = st.sidebar.selectbox("内径 [mm]", WATERS_ID,
                              index=WATERS_ID.index(id_default) if id_default in WATERS_ID else 1)
 L_mm = float(st.sidebar.selectbox("長さ [mm]", WATERS_LEN,
                                   index=WATERS_LEN.index(len_default) if len_default in WATERS_LEN else 3))
-porosity = st.sidebar.number_input("空隙率", value=float(colu.get("porosity", 0.68)), format="%.2f")
+porosity = st.sidebar.number_input("空隙率", value=float(colu.get("porosity", 0.66)), format="%.2f")
 Vm_geo = porosity * np.pi * (id_mm / 2.0) ** 2 * L_mm / 1000.0
 st.sidebar.caption(f"幾何推算 V_m = {Vm_geo:.3f} mL（{id_mm}×{int(L_mm)} mm, 空隙率{porosity}）")
 if st.sidebar.checkbox("V_m を手入力で上書き（ウラシル実測値など）"):
@@ -192,9 +192,15 @@ def run_fit_and_designspace(df, header_prefix=""):
     side_fc = floor_map[cc3.radio("F壁（床/天井）", ["自動", "床", "天井"],
                                   key=header_prefix + "wall_fc")]
     wall_side = {"T": side_lr, "phi": side_lr, "F": side_fc}
+    dn1, dn2 = st.columns(2)
+    contour_step = dn1.slider("等高線の間隔（Rs 刻み・小=密）", 0.1, 1.0, 0.5, step=0.1,
+                              key=header_prefix + "cstep")
+    surface_count = dn2.slider("雲の密度（層の数・大=濃く滑らか）", 5, 40, 30, step=1,
+                               key=header_prefix + "scount")
     fig = ds.plot_designspace_3d(grid, rec, model_mod=model, peaks=peaks_hat,
                                  factors=factors, Vm=Vm, L_mm=L_mm,
-                                 cloud_style=cloud_style, wall_side=wall_side)
+                                 cloud_style=cloud_style, wall_side=wall_side,
+                                 contour_step=contour_step, surface_count=surface_count)
     st.plotly_chart(fig, use_container_width=True)
     st.caption("雲＝合格領域（緑ほど Rs に余裕）、壁の線＝等高線（太黒線が Rs=2.0 の合格境界）、黒ドット＝推奨条件。")
 

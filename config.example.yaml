@@ -22,8 +22,8 @@ column:
   length_mm: 100              # カラム長 [mm]
   id_mm: 2.1                  # 内径 [mm]
   dp_um: 1.7                  # 粒径 [µm]
-  porosity: 0.68              # 全空隙率（BEH 全多孔性粒子の概算値）
-  Vm_mL: 0.24                 # カラム死容量 [mL]（幾何推算: 0.68 × π r² L）
+  porosity: 0.66              # 全空隙率（Waters 推奨の概算値。BEH 全多孔性粒子）
+  Vm_mL: 0.23                 # カラム死容量 [mL]（幾何推算: 0.66 × π r² L ≈ 0.229）
                               # 厳密化: 不保持物質(ウラシル等)を注入し Vm = t0 × F で実測
   peak_width_definition: half_height  # ピーク幅の定義（半値幅 W_h）
                                       # 理論段数換算: N = 5.54 × (t_R / W_h)²

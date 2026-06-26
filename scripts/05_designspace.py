@@ -30,7 +30,16 @@ except ImportError as e:
 # ──────────────────────────────
 # 3D デザインスペースプロット
 # ──────────────────────────────
-WALL_LEVELS = [1.0, 1.5, 2.0, 2.5, 3.0]   # 壁に描く Rs_min の等高線レベル
+WALL_LEVELS = [1.0, 1.5, 2.0, 2.5, 3.0]   # 壁に描く Rs_min の等高線レベル（既定）
+
+
+def build_levels(step, lo=0.5, hi=3.5):
+    """Rs の等高線レベルを刻み step で作る。合格境界 2.0 を必ず含める。"""
+    step = max(float(step), 0.05)
+    kmin = int(np.floor((lo - 2.0) / step))
+    kmax = int(np.ceil((hi - 2.0) / step))
+    levels = [round(2.0 + k * step, 6) for k in range(kmin, kmax + 1)]
+    return [v for v in levels if lo - 1e-9 <= v <= hi + 1e-9]
 
 
 def _level_color(level, lo=0.0, hi=3.0):
@@ -41,7 +50,7 @@ def _level_color(level, lo=0.0, hi=3.0):
 
 
 def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
-                        which, n=81, day=0, wall_side="low"):
+                        which, n=81, day=0, wall_side="low", levels=None):
     """
     箱の1つの壁に「等高線（ライン）」を描く Scatter3d トレース群を返す。
     壁に垂直な因子を推奨値（rec）に固定し、残り2面内因子で Rs_min を計算、
@@ -87,8 +96,9 @@ def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
         wall_name = f"T壁(T={rec['T']:.1f})"
 
     # matplotlib で等値線の座標（segments）を取得（描画はしない）
+    use_levels = WALL_LEVELS if levels is None else levels
     fig_tmp, ax_tmp = plt.subplots()
-    cs = ax_tmp.contour(AA, BB, Rs, levels=WALL_LEVELS)
+    cs = ax_tmp.contour(AA, BB, Rs, levels=use_levels)
     traces = []
     for level, segs in zip(cs.levels, cs.allsegs):
         if not segs:
@@ -153,7 +163,7 @@ def _auto_wall_side(grid, factor_key):
 def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                         model_mod=None, peaks=None, factors=None,
                         Vm=None, L_mm=None, day=0, cloud_style="volume",
-                        wall_side="auto"):
+                        wall_side="auto", contour_step=0.5, surface_count=30):
     """
     04_optimize.evaluate_grid の結果と推奨条件 rec から
     対話的 3D 図を作成し plotly Figure を返す。
@@ -187,18 +197,20 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
 
     can_walls = (rec is not None and model_mod is not None and peaks is not None
                  and factors is not None and Vm is not None and L_mm is not None)
+    contour_levels = build_levels(contour_step)
     if can_walls:
         for which in ("TP_floor", "TF_wall", "PF_wall"):
             side = _resolve_side(perp_key[which])
             for tr in _wall_contour_lines(
                     model_mod, peaks, factors, Vm, L_mm, rec, which,
-                    day=day, wall_side=side):
+                    day=day, wall_side=side, levels=contour_levels):
                 fig.add_trace(tr)
 
     # ── デザインスペースの雲 ──
     if mask.any():
         if cloud_style == "volume":
-            fig.add_trace(_designspace_volume_trace(grid, criteria_Rs=Rs_th))
+            fig.add_trace(_designspace_volume_trace(grid, criteria_Rs=Rs_th,
+                                                    surface_count=surface_count))
         else:
             fig.add_trace(go.Scatter3d(
                 x=grid["T"][mask], y=grid["phi"][mask], z=grid["F"][mask],
