@@ -140,7 +140,8 @@ st.sidebar.subheader("実験計画")
 n_center = st.sidebar.slider("CCD 中心点の数", 3, 8, 6)
 n_augment = st.sidebar.slider("D最適 追加点の数", 0, 16, 8)
 n_bridge = st.sidebar.slider("Day2 橋渡し中心点", 0, 5, 3)
-grid_n = st.sidebar.slider("デザインスペース格子の細かさ", 11, 41, 21, step=2)
+grid_n = st.sidebar.slider("デザインスペース格子の細かさ（大=雲が滑らか・やや重い）",
+                           11, 71, 41, step=2)
 
 
 def run_fit_and_designspace(df, header_prefix=""):
@@ -180,18 +181,22 @@ def run_fit_and_designspace(df, header_prefix=""):
     )
 
     st.subheader(f"{header_prefix}3D デザインスペース")
-    cc1, cc2 = st.columns(2)
+    cc1, cc2, cc3 = st.columns(3)
     cloud_style = "volume" if cc1.radio(
-        "雲の表現", ["無段階のボリューム", "散布点"], horizontal=True,
+        "雲の表現", ["無段階のボリューム", "散布点"],
         key=header_prefix + "cloud") == "無段階のボリューム" else "scatter"
-    wall_side = {"自動": "auto", "手前（下限側）": "low", "奥（上限側）": "high"}[cc2.radio(
-        "等高線の壁の位置", ["自動", "手前（下限側）", "奥（上限側）"], horizontal=True,
-        key=header_prefix + "wall")]
+    side_map = {"自動": "auto", "手前": "low", "奥": "high"}
+    side_lr = side_map[cc2.radio("T壁・φ壁（手前/奥）", ["自動", "手前", "奥"],
+                                 key=header_prefix + "wall_lr")]
+    floor_map = {"自動": "auto", "床": "low", "天井": "high"}
+    side_fc = floor_map[cc3.radio("F壁（床/天井）", ["自動", "床", "天井"],
+                                  key=header_prefix + "wall_fc")]
+    wall_side = {"T": side_lr, "phi": side_lr, "F": side_fc}
     fig = ds.plot_designspace_3d(grid, rec, model_mod=model, peaks=peaks_hat,
                                  factors=factors, Vm=Vm, L_mm=L_mm,
                                  cloud_style=cloud_style, wall_side=wall_side)
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("雲＝合格領域（緑ほど Rs に余裕）、壁の線＝等高線（太黒線が Rs=2.0 の合格境界）、金ひし形＝推奨条件。")
+    st.caption("雲＝合格領域（緑ほど Rs に余裕）、壁の線＝等高線（太黒線が Rs=2.0 の合格境界）、黒ドット＝推奨条件。")
 
     rec_df = pd.DataFrame([{
         "T_degC": rec["T"], "phi_ACN": rec["phi"], "F_mL_min": rec["F"],
@@ -328,7 +333,11 @@ with tab4:
 with tab_demo:
     st.header("デモ（合成データ）")
     st.write("CCD＋D最適の計画に、既知パラメータ（交互作用・日間差入り）で合成した t_R・W_h を当てた一気通貫デモ。")
+    # ボタンは押した瞬間だけ True なので、状態を session_state に保持する。
+    # こうしないと雲の表現などのウィジェットを変えるたびに結果が消えてしまう。
     if st.button("デモを実行"):
+        st.session_state["demo_ran"] = True
+    if st.session_state.get("demo_ran"):
         plan = design.build_runs_template(factors, n_center=n_center, alpha=1.0,
                                           n_bridge=n_bridge, n_augment=n_augment,
                                           method="model", Vm=Vm, L_mm=L_mm)
