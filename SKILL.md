@@ -28,7 +28,13 @@ factors:
   # 実測後の更新式: F_low = Vm*(1+k_center)/tR_high, F_high = Vm*(1+k_center)/tR_low
 
 column:
-  Vm: 0.1          # カラム死容量 [mL]（不保持物質注入で実測）
+  Vm: 0.24         # カラム死容量 [mL]。幾何推算 Vm ≈ 0.68 × π r² L（2.1×100mm）
+                   # 厳密化するなら不保持物質(ウラシル等)注入で t_0 実測 → Vm = t_0 × F
+  length_mm: 100   # カラム長
+  id_mm: 2.1       # 内径
+  dp_um: 1.7       # 粒径
+  porosity: 0.68   # 全空隙率（BEH 全多孔性の概算値）
+  peak_width: half_height  # ピーク幅の定義（半値幅 W_h、N = 5.54·(t_R/W_h)²）
 
 acceptance_criteria:
   Rs_min: 2.0      # min{Rs1, Rs2} の下限
