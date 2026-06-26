@@ -142,6 +142,9 @@ n_augment = st.sidebar.slider("D最適 追加点の数", 0, 16, 8)
 n_bridge = st.sidebar.slider("Day2 橋渡し中心点", 0, 5, 3)
 grid_n = st.sidebar.slider("デザインスペース格子の細かさ（計算解像度・大=滑らか/やや重い）",
                            11, 71, 51, step=2)
+extrapolate = st.sidebar.slider("外挿（予測範囲を因子範囲の外へ拡張）", 0.0, 0.5, 0.0, step=0.05,
+                                help="0 で因子範囲内のみ。>0 で雲・グラフを範囲外まで広げる（検証外の予測）。"
+                                     "推奨条件は安全のため検証済みの元範囲内からのみ選ぶ。")
 
 
 def run_fit_and_designspace(df, header_prefix=""):
@@ -164,7 +167,8 @@ def run_fit_and_designspace(df, header_prefix=""):
                "保持の個別係数は実験範囲が狭く多重共線のため深読みせず、予測精度で評価する。")
 
     st.subheader(f"{header_prefix}デザインスペースと推奨条件")
-    grid, rec = opt.optimize(model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n)
+    grid, rec = opt.optimize(model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n,
+                             extrapolate=extrapolate)
     n_pass, n_total = int(grid["pass_mask"].sum()), grid["pass_mask"].size
     c1, c2 = st.columns(2)
     c1.metric("合格領域の広さ", f"{n_pass} / {n_total} 点", f"{100*n_pass/n_total:.1f}%")

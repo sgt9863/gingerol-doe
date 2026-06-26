@@ -28,6 +28,20 @@ import numpy as np
 # ──────────────────────────────
 # 格子の生成
 # ──────────────────────────────
+def expand_factors(factors, extrapolate=0.0):
+    """各因子の範囲を上下に extrapolate 割合だけ広げた factors を返す（外挿評価用）。
+    F は流速なので下限が正に留まるよう 0.05 でクランプする。"""
+    out = {}
+    for f, spec in factors.items():
+        lo, hi = spec["low"], spec["high"]
+        span = hi - lo
+        new_lo, new_hi = lo - extrapolate * span, hi + extrapolate * span
+        if f == "F":
+            new_lo = max(new_lo, 0.05)
+        out[f] = {**spec, "low": new_lo, "high": new_hi}
+    return out
+
+
 def make_grid(factors, n=21):
     """
     factors（T/phi/F の low,high を持つ dict）から (n×n×n) の評価格子を作る。
@@ -40,20 +54,34 @@ def make_grid(factors, n=21):
     return TT.ravel(), PP.ravel(), FF.ravel(), (T_ax, P_ax, F_ax)
 
 
+def _in_range_mask(T, phi, F, factors):
+    """各点が元の因子範囲（検証済み領域）内かどうかの bool 配列。"""
+    return (
+        (T >= factors["T"]["low"] - 1e-9) & (T <= factors["T"]["high"] + 1e-9)
+        & (phi >= factors["phi"]["low"] - 1e-9) & (phi <= factors["phi"]["high"] + 1e-9)
+        & (F >= factors["F"]["low"] - 1e-9) & (F <= factors["F"]["high"] + 1e-9)
+    )
+
+
 # ──────────────────────────────
 # 合格判定
 # ──────────────────────────────
-def evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0):
+def evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
+                  extrapolate=0.0):
     """
     格子の全点で 3 ピークを予測し、合格条件を判定する。
+    extrapolate>0 のとき、評価格子だけ因子範囲の外まで広げる（外挿。検証外の予測）。
     戻り値 dict:
       T, phi, F        : 各点の実条件（1次元配列）
       Rs_min           : 各点の min{Rs1,Rs2}
       tR_TP, tR_last   : 各点の TP 保持時間 / 最遅ピーク保持時間
       pass_mask        : 3条件すべて満たすか（bool 配列）＝デザインスペース
+      in_range         : 元の因子範囲（検証済み）内か。推奨条件はここからのみ選ぶ
       axes             : (T_ax, P_ax, F_ax)
     """
-    T, phi, F, axes = make_grid(factors, n=n)
+    eval_factors = expand_factors(factors, extrapolate) if extrapolate > 0 else factors
+    T, phi, F, axes = make_grid(eval_factors, n=n)
+    in_range = _in_range_mask(T, phi, F, factors)
     sep = model_mod.separation(peaks, T, phi, F, Vm, L_mm, day=day)
 
     tR_TP = sep["TP"]["tR"]
@@ -71,6 +99,7 @@ def evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0):
         "Rs_min": sep["Rs_min"],
         "tR_TP": tR_TP, "tR_last": tR_last,
         "pass_mask": pass_mask,
+        "in_range": in_range,
         "axes": axes,
     }
 
@@ -96,16 +125,19 @@ def max_margin_point(grid_result, factors):
     """
     合格領域の中で「最寄りの崖まで最も遠い」点を返す（最大余裕点）。
     崖 = 合格条件を破る不合格点 ＋ 因子範囲の壁（探索範囲の端。外挿を避けるため崖扱い）。
+    推奨は検証済みの元範囲内（in_range）からのみ選ぶ。外挿格子があっても外挿点は推奨しない。
     戻り値 dict: T, phi, F（推奨条件）, margin（正規化空間での余裕）, index。
     合格点が無ければ None。
     """
     mask = grid_result["pass_mask"]
-    if not mask.any():
+    in_range = grid_result.get("in_range")
+    cand_mask = mask if in_range is None else (mask & in_range)
+    if not cand_mask.any():
         return None
 
     coords = _normalize(grid_result["T"], grid_result["phi"], grid_result["F"], factors)
-    pass_pts = coords[mask]
-    fail_pts = coords[~mask]
+    pass_pts = coords[cand_mask]        # 推奨候補は元範囲内の合格点のみ
+    fail_pts = coords[~mask]            # 崖は不合格点（外挿域も含む）
 
     # (1) 因子範囲の壁までの距離（端も崖として扱う）
     edge_margin = _edge_distance(pass_pts)
@@ -132,8 +164,8 @@ def max_margin_point(grid_result, factors):
     best_local = int(np.argmax(margins))
     margin = float(margins[best_local])
 
-    # pass 部分集合の index を全体 index に戻す
-    global_idx = np.flatnonzero(mask)[best_local]
+    # 候補部分集合の index を全体 index に戻す
+    global_idx = np.flatnonzero(cand_mask)[best_local]
     return {
         "T": float(grid_result["T"][global_idx]),
         "phi": float(grid_result["phi"][global_idx]),
@@ -143,9 +175,12 @@ def max_margin_point(grid_result, factors):
     }
 
 
-def optimize(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0):
-    """格子評価 → 最大余裕点までを一括実行。戻り値: (grid_result, recommend dict or None)。"""
-    grid = evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=n, day=day)
+def optimize(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
+             extrapolate=0.0):
+    """格子評価 → 最大余裕点までを一括実行。戻り値: (grid_result, recommend dict or None)。
+    extrapolate>0 で評価格子を因子範囲の外まで広げる（推奨は元範囲内から選ぶ）。"""
+    grid = evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=n, day=day,
+                         extrapolate=extrapolate)
     rec = max_margin_point(grid, factors)
     return grid, rec
 
