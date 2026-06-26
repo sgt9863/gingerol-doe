@@ -129,9 +129,13 @@ def _designspace_volume_trace(grid, criteria_Rs=2.0, surface_count=30):
     滑らかさ＝格子の細かさ（呼び出し側 n）× surface_count（等値層の枚数）。
     """
     mask = grid["pass_mask"]
-    # 合格点は Rs_min、不合格点は 0（isomin で描画対象外にする）
+    # 合格点は Rs_min、不合格点は 0（isomin で描画対象外にする＝無色透明）
     value = np.where(mask, grid["Rs_min"], 0.0)
     rs_max = float(grid["Rs_min"][mask].max()) if mask.any() else 3.0
+    # 色スケールをデザインスペース内の Rs 範囲（境界〜最大）に引き伸ばす
+    #  → 内部で赤(ギリギリ合格)→緑(余裕大)の変化がはっきり出る。退化時は少し広げる。
+    cmin = float(criteria_Rs)
+    cmax = rs_max if rs_max > cmin + 1e-6 else cmin + 0.5
     return go.Volume(
         x=grid["T"], y=grid["phi"], z=grid["F"], value=value,
         isomin=criteria_Rs,                 # 合格境界（Rs≥2.0）から上だけ雲にする
@@ -139,7 +143,7 @@ def _designspace_volume_trace(grid, criteria_Rs=2.0, surface_count=30):
         opacity=0.10,                       # 半透明（無段階の靄）
         opacityscale="uniform",             # 層ごとの不透明度を均一にして靄を滑らかに
         surface_count=surface_count,        # 等値層の枚数（多いほど滑らか）
-        colorscale="RdYlGn", cmin=0.0, cmax=3.0,
+        colorscale="RdYlGn", cmin=cmin, cmax=cmax,
         caps=dict(x_show=False, y_show=False, z_show=False),
         colorbar=dict(title="Rs_min", thickness=15, len=0.6),
         name="デザインスペース（雲）",
