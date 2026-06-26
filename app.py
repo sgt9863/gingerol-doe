@@ -192,17 +192,15 @@ def run_fit_and_designspace(df, header_prefix=""):
     side_fc = floor_map[cc3.radio("F壁（床/天井）", ["自動", "床", "天井"],
                                   key=header_prefix + "wall_fc")]
     wall_side = {"T": side_lr, "phi": side_lr, "F": side_fc}
-    dn1, dn2 = st.columns(2)
-    contour_step = dn1.slider("等高線の間隔（Rs 刻み・小=密）", 0.1, 1.0, 0.5, step=0.1,
-                              key=header_prefix + "cstep")
-    surface_count = dn2.slider("雲の密度（層の数・大=濃く滑らか）", 5, 40, 30, step=1,
-                               key=header_prefix + "scount")
+    surface_count = st.slider("雲の密度（層の数・大=濃く滑らか）", 5, 40, 30, step=1,
+                              key=header_prefix + "scount")
     fig = ds.plot_designspace_3d(grid, rec, model_mod=model, peaks=peaks_hat,
                                  factors=factors, Vm=Vm, L_mm=L_mm,
                                  cloud_style=cloud_style, wall_side=wall_side,
-                                 contour_step=contour_step, surface_count=surface_count)
+                                 surface_count=surface_count)
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("雲＝合格領域（緑ほど Rs に余裕）、壁の線＝等高線（太黒線が Rs=2.0 の合格境界）、黒ドット＝推奨条件。")
+    st.caption("雲＝合格領域（Viridis: 紫=ギリギリ→黄=余裕大）、壁の線＝デザインスペース内のRs等高線5本"
+               "（太黒線が Rs=2.0 の合格境界）、黒ドット＝推奨条件。")
 
     rec_df = pd.DataFrame([{
         "T_degC": rec["T"], "phi_ACN": rec["phi"], "F_mL_min": rec["F"],
