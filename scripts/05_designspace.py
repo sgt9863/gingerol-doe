@@ -220,16 +220,13 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
         )
         fig.add_trace(go.Scatter3d(
             x=[rec["T"]], y=[rec["phi"]], z=[rec["F"]],
-            mode="markers+text",
+            mode="markers",
             marker=dict(
-                size=14,
-                color="gold",
-                symbol="diamond",
-                line=dict(color="darkorange", width=2),
+                size=7,
+                color="#111111",                 # 締まった黒のドット
+                symbol="circle",
+                line=dict(color="white", width=2),  # 白ハロで背景から浮かせる
             ),
-            text=["推奨条件"],
-            textposition="top center",
-            textfont=dict(size=13, color="darkorange"),
             name="推奨条件（最大余裕点）",
             hovertemplate=hover_txt + "<extra>推奨条件</extra>",
         ))
