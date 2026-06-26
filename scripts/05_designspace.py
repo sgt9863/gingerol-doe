@@ -165,6 +165,28 @@ def _auto_wall_side(grid, factor_key):
     return "high" if vals.mean() >= mid else "low"
 
 
+def _validated_box_trace(factors):
+    """検証済みの元因子範囲を表すワイヤーフレームの箱（12辺）。外挿域との境を示す。"""
+    Tl, Th = factors["T"]["low"], factors["T"]["high"]
+    Pl, Ph = factors["phi"]["low"], factors["phi"]["high"]
+    Fl, Fh = factors["F"]["low"], factors["F"]["high"]
+    c = [(Tl, Pl, Fl), (Th, Pl, Fl), (Th, Ph, Fl), (Tl, Ph, Fl),
+         (Tl, Pl, Fh), (Th, Pl, Fh), (Th, Ph, Fh), (Tl, Ph, Fh)]
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+             (0, 4), (1, 5), (2, 6), (3, 7)]
+    xs, ys, zs = [], [], []
+    for i, j in edges:
+        xs += [c[i][0], c[j][0], None]
+        ys += [c[i][1], c[j][1], None]
+        zs += [c[i][2], c[j][2], None]
+    return go.Scatter3d(
+        x=xs, y=ys, z=zs, mode="lines",
+        line=dict(color="gray", width=3, dash="dash"),
+        name="検証範囲（この外は外挿）",
+        hoverinfo="skip",
+    )
+
+
 def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                         model_mod=None, peaks=None, factors=None,
                         Vm=None, L_mm=None, day=0, cloud_style="volume",
@@ -193,6 +215,11 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
     global_rs_max = float(grid["Rs_min"].max())
 
     fig = go.Figure()
+
+    # ── 外挿時は検証範囲の枠を描く（外挿域と見分けるため）──
+    in_range = grid.get("in_range")
+    if factors is not None and in_range is not None and not in_range.all():
+        fig.add_trace(_validated_box_trace(factors))
 
     # ── 各壁に等高線を投影（垂直な因子を推奨値に固定）──
     # which と「その壁に垂直な因子キー」の対応（auto 配置の判定に使う）
