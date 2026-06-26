@@ -29,13 +29,64 @@ except ImportError as e:
 # ──────────────────────────────
 # 3D デザインスペースプロット
 # ──────────────────────────────
-def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC"):
+def _wall_contour_surface(model_mod, peaks, factors, Vm, L_mm, rec,
+                          which, n=41, day=0):
+    """
+    箱の1つの壁に貼る等高線サーフェスを作る。
+    壁に垂直な因子を推奨値（rec）に固定し、残り2因子で Rs_min を計算、
+    壁の位置（その因子の low 側）に平らな go.Surface として置く。
+
+    which: "TP_floor"(F壁・T-φ面) / "TF_wall"(φ壁・T-F面) / "PF_wall"(T壁・φ-F面)
+    """
+    T_lo, T_hi = factors["T"]["low"], factors["T"]["high"]
+    P_lo, P_hi = factors["phi"]["low"], factors["phi"]["high"]
+    F_lo, F_hi = factors["F"]["low"], factors["F"]["high"]
+    T_ax = np.linspace(T_lo, T_hi, n)
+    P_ax = np.linspace(P_lo, P_hi, n)
+    F_ax = np.linspace(F_lo, F_hi, n)
+
+    if which == "TP_floor":          # T-φ 面、F=推奨値固定 → F の床に置く
+        TT, PP = np.meshgrid(T_ax, P_ax)
+        FF = np.full_like(TT, rec["F"])
+        Rs = model_mod.separation(peaks, TT, PP, FF, Vm, L_mm, day=day)["Rs_min"]
+        X, Y, Z = TT, PP, np.full_like(TT, F_lo)
+    elif which == "TF_wall":         # T-F 面、φ=推奨値固定 → φ の壁に置く
+        TT, FF = np.meshgrid(T_ax, F_ax)
+        PP = np.full_like(TT, rec["phi"])
+        Rs = model_mod.separation(peaks, TT, PP, FF, Vm, L_mm, day=day)["Rs_min"]
+        X, Y, Z = TT, np.full_like(TT, P_lo), FF
+    else:                            # "PF_wall": φ-F 面、T=推奨値固定 → T の壁に置く
+        PP, FF = np.meshgrid(P_ax, F_ax)
+        TT = np.full_like(PP, rec["T"])
+        Rs = model_mod.separation(peaks, TT, PP, FF, Vm, L_mm, day=day)["Rs_min"]
+        X, Y, Z = np.full_like(PP, T_lo), PP, FF
+
+    return go.Surface(
+        x=X, y=Y, z=Z, surfacecolor=Rs,
+        colorscale="RdYlGn", cmin=0.0, cmax=3.0,
+        showscale=False, opacity=0.85,
+        contours=dict(
+            x=dict(highlight=False), y=dict(highlight=False),
+            z=dict(highlight=False),
+        ),
+        hovertemplate="Rs_min=%{surfacecolor:.2f}<extra>壁の等高線</extra>",
+        name="壁等高線",
+    )
+
+
+def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
+                        model_mod=None, peaks=None, factors=None,
+                        Vm=None, L_mm=None, day=0):
     """
     04_optimize.evaluate_grid の結果と推奨条件 rec から
-    対話的 3D 散布図を作成し plotly Figure を返す。
+    対話的 3D 図を作成し plotly Figure を返す。
+
+    中央: デザインスペースの点群（雲）。
+    壁:   model_mod 等が渡されれば、各壁に「垂直因子＝推奨値固定」の Rs 等高線を投影。
 
     grid : evaluate_grid() の戻り値 dict（T, phi, F, Rs_min, pass_mask, ...）
     rec  : max_margin_point() の戻り値 dict（T, phi, F, margin）または None
+    壁を描くには model_mod, peaks, factors, Vm, L_mm が必要（無ければ点群のみ）。
     """
     mask = grid["pass_mask"]
     T_pass = grid["T"][mask]
@@ -48,6 +99,14 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC"):
     F_fail = grid["F"][~mask]
 
     fig = go.Figure()
+
+    # ── 各壁に等高線を投影（垂直な因子を推奨値に固定）──
+    can_walls = (rec is not None and model_mod is not None and peaks is not None
+                 and factors is not None and Vm is not None and L_mm is not None)
+    if can_walls:
+        for which in ("TP_floor", "TF_wall", "PF_wall"):
+            fig.add_trace(_wall_contour_surface(
+                model_mod, peaks, factors, Vm, L_mm, rec, which, day=day))
 
     # ── 不合格点（背景として薄く）──
     if len(T_fail) > 0:
@@ -70,9 +129,8 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC"):
                 size=4,
                 color=Rs_pass,
                 colorscale="RdYlGn",       # 赤（ギリギリ）→黄→緑（余裕あり）
-                cmin=float(Rs_pass.min()),
-                cmax=float(Rs_pass.max()),
-                opacity=0.7,
+                cmin=0.0, cmax=3.0,        # 壁の等高線と共通スケール（色の整合）
+                opacity=0.8,
                 colorbar=dict(title="Rs_min", thickness=15, len=0.6),
                 line=dict(width=0),
             ),
@@ -236,7 +294,8 @@ if __name__ == "__main__":
         print(f"余裕（正規化）: {rec['margin']:.3f}")
 
     print("\n3D グラフを生成中...")
-    fig3d = plot_designspace_3d(grid, rec)
+    fig3d = plot_designspace_3d(grid, rec, model_mod=model_mod, peaks=peaks,
+                                factors=factors, Vm=Vm, L_mm=L)
     save_html(fig3d, "outputs/designspace_3d.html")
 
     print("2D スライスを生成中（F=中水準固定）...")
