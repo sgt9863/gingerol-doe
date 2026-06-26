@@ -247,17 +247,47 @@ with tab2:
 # ── ③ D最適 augment ──
 with tab3:
     st.header("③ D最適 augment（Day2 の追加実験）")
-    st.write("Day1 の CCD に、**メカニズムモデル基準の D最適**で情報量の高い点を追加します。"
+    st.write("Day1 の CCD に D最適で情報量の高い点を追加します。"
              "別日に実施するため、冒頭に橋渡し中心点（日間差の測定用）を入れます。")
-    st.caption("補足：保持モデルは係数について線形なので、追加点はフィット係数の値には依存しません"
-               "（モデルの形が決まれば最適点が決まる）。Day1 でモデル形を確認してから進めます。")
+    basis = st.radio(
+        "D最適の目的（基準）",
+        ["(A) 係数精度（モデル基準・データ不要）",
+         "(B) Rs境界の精度（局所D最適・Day1データ要）"],
+        help="(A) はモデル係数全体を精密化（線形なので係数値に非依存・頑健）。"
+             "(B) は Rs=2 の境界近傍に点を集めてデザインスペース境界を直接精密化（Day1の係数推定を使う）。")
+    use_rs = basis.startswith("(B)")
+
+    peaks_for_aug = None
+    if use_rs:
+        st.caption("(B) は非線形な Rs の係数感度（ヤコビアン）を使うため、Day1 のフィット結果が必要です。"
+                   "記入済み Day1 データを読み込んでください。")
+        up3 = st.file_uploader("記入済み Day1 データ（(B)用）", type=["xlsx", "csv"], key="up3")
+        if up3 is not None:
+            df3, miss3 = read_runs(up3)
+            if miss3:
+                st.error(f"必要な列が足りません: {miss3}")
+            else:
+                peaks_for_aug, _ = fit.fit_all(df3, Vm, L_mm)
+                st.success("Day1 をフィットしました。Rs境界標的で追加点を生成します。")
+    else:
+        st.caption("補足：保持モデルは係数について線形なので、(A)の追加点はフィット係数の値に依存しません"
+                   "（モデルの形が決まれば最適点が決まる）。データ不要で計画できます。")
+
     ccd_for_aug = design.ccd_design(factors, n_center=n_center, alpha=1.0, day=0)
     parts = []
     if n_bridge > 0:
         parts.append(design.bridge_center(factors, n_bridge=n_bridge, day=1))
     if n_augment > 0:
-        parts.append(design.augment_design(factors, ccd_for_aug, n_augment, alpha=1.0,
-                                            day=1, method="model", Vm=Vm, L_mm=L_mm))
+        if use_rs and peaks_for_aug is None:
+            st.info("(B) は Day1 データの読み込み後に追加点を表示します。")
+        elif use_rs:
+            parts.append(design.augment_design(
+                factors, ccd_for_aug, n_augment, alpha=1.0, day=1, method="rs_local",
+                Vm=Vm, L_mm=L_mm, model_mod=model, peaks=peaks_for_aug,
+                Rs_target=criteria["Rs_min"]))
+        else:
+            parts.append(design.augment_design(factors, ccd_for_aug, n_augment, alpha=1.0,
+                                                day=1, method="model", Vm=Vm, L_mm=L_mm))
     if parts:
         day2 = pd.concat(parts, ignore_index=True)
         day2.insert(0, "run", np.arange(len(ccd_for_aug) + 1, len(ccd_for_aug) + 1 + len(day2)))

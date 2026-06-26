@@ -203,13 +203,97 @@ def d_optimal_augment_model(existing_real, n_add, factors, Vm, L_mm,
     return out
 
 
+# ──────────────────────────────
+# (B) Rs境界標的の局所D最適（フィット済みモデルのヤコビアンを使う）
+# ──────────────────────────────
+RET_KEYS = ["a", "b", "c", "d", "e"]   # 保持パラメータ
+WID_KEYS = ["A", "B", "C"]             # 幅パラメータ
+PEAK_NAMES = ["IP1", "TP", "IP2"]
+
+
+def _rs_param_jacobian(model_mod, peaks, T, phi, F, Vm, L_mm, rel_eps=1e-4):
+    """
+    各候補点での Rs_min のパラメータ偏微分（ヤコビアン）を数値微分で返す。
+    戻り値: (候補数 × パラメータ数) 行列。
+    パラメータは3ピーク×(a,b,c,d,e,A,B,C)を平坦化。Rs が非線形なので係数値に依存する。
+    """
+    import copy
+    base = np.atleast_1d(model_mod.separation(peaks, T, phi, F, Vm, L_mm)["Rs_min"]).astype(float)
+    cols = []
+    for pk in PEAK_NAMES:
+        for key in RET_KEYS + WID_KEYS:
+            val = peaks[pk].get(key, 0.0)
+            step = rel_eps * (abs(val) if val != 0 else 1.0)
+            p2 = copy.deepcopy(peaks)
+            p2[pk][key] = val + step
+            rs2 = np.atleast_1d(model_mod.separation(p2, T, phi, F, Vm, L_mm)["Rs_min"]).astype(float)
+            cols.append((rs2 - base) / step)
+    return np.column_stack(cols)   # (ncand, nparams)
+
+
+def d_optimal_augment_rs(existing_real, n_add, factors, model_mod, peaks, Vm, L_mm,
+                         Rs_target=2.0, band=0.5, alpha=1.0, grid_levels=5, ridge=1e-9):
+    """
+    Rs境界標的の局所D最適。フィット済み peaks の Rs ヤコビアンで det(JᵀWJ) を貪欲最大化。
+    境界 Rs≈Rs_target 近傍を重視するため、候補を w=exp(-((Rs-target)/band)²) で重み付ける。
+    → デザインスペース境界の予測精度を直接上げる点を選ぶ。peaks（Day1フィット結果）が必要。
+    """
+    specs = _factor_specs(factors)
+    levels = np.linspace(-alpha, alpha, grid_levels)
+    cand_coded = np.array(list(itertools.product(levels, levels, levels)))
+    cand_real = np.column_stack([
+        coded_to_real(cand_coded[:, i], *specs[f], alpha)
+        for i, f in enumerate(FACTOR_NAMES)
+    ])
+    cT, cP, cF = cand_real[:, 0], cand_real[:, 1], cand_real[:, 2]
+
+    # 候補のヤコビアンと境界近傍の重み
+    Jc = _rs_param_jacobian(model_mod, peaks, cT, cP, cF, Vm, L_mm)
+    Rs_c = np.atleast_1d(model_mod.separation(peaks, cT, cP, cF, Vm, L_mm)["Rs_min"])
+    w_c = np.exp(-((Rs_c - Rs_target) / band) ** 2)
+    Jw = Jc * w_c[:, None]
+
+    # 既存点の情報（同じく境界重みつき）で M を初期化
+    ex = np.atleast_2d(np.asarray(existing_real, dtype=float))
+    Je = _rs_param_jacobian(model_mod, peaks, ex[:, 0], ex[:, 1], ex[:, 2], Vm, L_mm)
+    Rs_e = np.atleast_1d(model_mod.separation(peaks, ex[:, 0], ex[:, 1], ex[:, 2], Vm, L_mm)["Rs_min"])
+    we = np.exp(-((Rs_e - Rs_target) / band) ** 2)
+    Jew = Je * we[:, None]
+    M = Jew.T @ Jew + ridge * np.eye(Jw.shape[1])
+
+    added_real, added_coded = [], []
+    for _ in range(n_add):
+        Minv = np.linalg.inv(M)
+        leverage = np.einsum("ij,jk,ik->i", Jw, Minv, Jw)   # 重み込みレバレッジ
+        best = int(np.argmax(leverage))
+        added_real.append(cand_real[best])
+        added_coded.append(cand_coded[best])
+        M = M + np.outer(Jw[best], Jw[best])                # 採用点で情報を更新
+    out = pd.DataFrame(added_real, columns=FACTOR_NAMES)
+    for i, f in enumerate(FACTOR_NAMES):
+        out[f"c{f}"] = [c[i] for c in added_coded]
+    return out
+
+
 def augment_design(factors, existing_df, n_add, alpha=1.0, day=1, method="model",
-                   Vm=0.24, L_mm=100.0):
+                   Vm=0.24, L_mm=100.0, model_mod=None, peaks=None,
+                   Rs_target=2.0, band=0.5):
     """
     D最適 augment を実値つき DataFrame で返す（Day2 用、橋渡し中心点は別途）。
-    method="model": メカニズムモデル基準（推奨）。Vm, L_mm が必要。
-    method="poly" : 符号化空間の2次多項式基準（従来）。
+    method="model"   : (A) メカニズムモデル基準（係数精度・係数値に非依存）。Vm,L_mm が必要。
+    method="rs_local": (B) Rs境界標的の局所D最適。model_mod と peaks（Day1フィット結果）が必要。
+    method="poly"    : 符号化空間の2次多項式基準（従来）。
     """
+    if method == "rs_local":
+        if model_mod is None or peaks is None:
+            raise ValueError("method='rs_local' には model_mod と peaks（フィット結果）が必要です。")
+        existing_real = existing_df[FACTOR_NAMES].to_numpy()
+        df = d_optimal_augment_rs(existing_real, n_add, factors, model_mod, peaks,
+                                  Vm, L_mm, Rs_target=Rs_target, band=band, alpha=alpha)
+        df.insert(0, "type", "d_optimal_rs")
+        df.insert(0, "day", day)
+        return df
+
     if method == "model":
         existing_real = existing_df[FACTOR_NAMES].to_numpy()
         df = d_optimal_augment_model(existing_real, n_add, factors, Vm, L_mm, alpha=alpha)
