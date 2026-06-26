@@ -111,11 +111,12 @@ def _wall_contour_lines(model_mod, peaks, factors, Vm, L_mm, rec,
     return traces
 
 
-def _designspace_volume_trace(grid, criteria_Rs=2.0):
+def _designspace_volume_trace(grid, criteria_Rs=2.0, surface_count=30):
     """
     デザインスペースを「無段階の雲」として描く go.Volume トレース。
     合格領域だけを残し（不合格点の値は 0 にして isomin で消す）、Rs_min で着色。
     格子は make_grid の meshgrid(indexing='ij') 由来の規則格子である前提。
+    滑らかさ＝格子の細かさ（呼び出し側 n）× surface_count（等値層の枚数）。
     """
     mask = grid["pass_mask"]
     # 合格点は Rs_min、不合格点は 0（isomin で描画対象外にする）
@@ -125,8 +126,9 @@ def _designspace_volume_trace(grid, criteria_Rs=2.0):
         x=grid["T"], y=grid["phi"], z=grid["F"], value=value,
         isomin=criteria_Rs,                 # 合格境界（Rs≥2.0）から上だけ雲にする
         isomax=rs_max,
-        opacity=0.12,                       # 半透明（無段階の靄）
-        surface_count=18,                   # 等値層の枚数（多いほど滑らか）
+        opacity=0.10,                       # 半透明（無段階の靄）
+        opacityscale="uniform",             # 層ごとの不透明度を均一にして靄を滑らかに
+        surface_count=surface_count,        # 等値層の枚数（多いほど滑らか）
         colorscale="RdYlGn", cmin=0.0, cmax=3.0,
         caps=dict(x_show=False, y_show=False, z_show=False),
         colorbar=dict(title="Rs_min", thickness=15, len=0.6),
@@ -160,10 +162,10 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
       "volume"  … 無段階の半透明ボリューム（go.Volume。WebGL 必須）
       "scatter" … 合格点の散布点（go.Scatter3d）
     壁:   model_mod 等が渡されれば、各壁に「垂直因子＝推奨値固定」の Rs 等高線を投影。
-    wall_side: 等高線の壁の置き場所。
-      "auto" … デザインスペースに近い面へ各壁を自動配置（既定・見やすい）
-      "low"  … すべて下限側（手前）の壁に固定
-      "high" … すべて上限側（奥）の壁に固定
+    wall_side: 等高線の壁の置き場所。文字列で全壁一括、または因子ごとの dict で個別指定。
+      文字列: "auto"（合格領域に近い面へ自動）／"low"（下限側）／"high"（上限側）
+      dict  : {"T": .., "phi": .., "F": ..} 各値は "auto"/"low"/"high"。
+              F壁は床(low)/天井(high)、T壁・φ壁は手前(low)/奥(high) に対応。
 
     grid : evaluate_grid() の戻り値 dict（T, phi, F, Rs_min, pass_mask, ...）
     rec  : max_margin_point() の戻り値 dict（T, phi, F, margin）または None
@@ -177,12 +179,17 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
     # ── 各壁に等高線を投影（垂直な因子を推奨値に固定）──
     # which と「その壁に垂直な因子キー」の対応（auto 配置の判定に使う）
     perp_key = {"TP_floor": "F", "TF_wall": "phi", "PF_wall": "T"}
+
+    def _resolve_side(perp):
+        # wall_side が dict ならその因子の指定、文字列なら全壁共通
+        spec = wall_side.get(perp, "auto") if isinstance(wall_side, dict) else wall_side
+        return _auto_wall_side(grid, perp) if spec == "auto" else spec
+
     can_walls = (rec is not None and model_mod is not None and peaks is not None
                  and factors is not None and Vm is not None and L_mm is not None)
     if can_walls:
         for which in ("TP_floor", "TF_wall", "PF_wall"):
-            side = (_auto_wall_side(grid, perp_key[which])
-                    if wall_side == "auto" else wall_side)
+            side = _resolve_side(perp_key[which])
             for tr in _wall_contour_lines(
                     model_mod, peaks, factors, Vm, L_mm, rec, which,
                     day=day, wall_side=side):

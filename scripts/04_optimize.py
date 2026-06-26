@@ -110,16 +110,22 @@ def max_margin_point(grid_result, factors):
     # (1) 因子範囲の壁までの距離（端も崖として扱う）
     edge_margin = _edge_distance(pass_pts)
 
-    # (2) 最寄りの不合格点までの距離
+    # (2) 最寄りの不合格点までの距離。
+    #     KDTree（最近傍探索）で O(N log N) に。細かい格子でも高速。
     if len(fail_pts) == 0:
         fail_margin = np.full(len(pass_pts), np.inf)
     else:
-        fail_margin = np.empty(len(pass_pts))
-        chunk = 2000   # メモリ節約のためチャンクで距離計算
-        for s in range(0, len(pass_pts), chunk):
-            blk = pass_pts[s:s + chunk]
-            d = np.linalg.norm(blk[:, None, :] - fail_pts[None, :, :], axis=2)
-            fail_margin[s:s + chunk] = d.min(axis=1)
+        try:
+            from scipy.spatial import cKDTree
+            fail_margin, _ = cKDTree(fail_pts).query(pass_pts, k=1)
+        except ImportError:
+            # scipy が無い環境（Excel貼付など）はチャンク全ペアで代替
+            fail_margin = np.empty(len(pass_pts))
+            chunk = 2000
+            for s in range(0, len(pass_pts), chunk):
+                blk = pass_pts[s:s + chunk]
+                d = np.linalg.norm(blk[:, None, :] - fail_pts[None, :, :], axis=2)
+                fail_margin[s:s + chunk] = d.min(axis=1)
 
     # 余裕 = 2種類の崖までの距離の小さい方（最初にぶつかる崖まで）
     margins = np.minimum(edge_margin, fail_margin)
