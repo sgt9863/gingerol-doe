@@ -1,0 +1,14 @@
+# 中核ロジック（scripts/01〜04）— Python in Excel でも使う既定ライブラリ
+numpy
+scipy
+statsmodels
+pandas
+pyyaml
+
+# 可視化・フロントエンド（scripts/05 と app.py 専用。Excel 側では不要）
+plotly
+matplotlib        # 壁の等高線の座標抽出に使用（描画は Agg、画面なし）
+streamlit         # Web アプリの入口（streamlit run app.py）
+
+# 静止画 PNG 書き出し（任意。fig.write_image を使う場合のみ）
+# kaleido
