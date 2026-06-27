@@ -10,3 +10,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# skill-creator eval transient artifacts
+.claude/commands/
+.claude/skills/*-workspace/results/
+.claude/skills/*-workspace/*.log
+.claude/skills/*-workspace/report.html
