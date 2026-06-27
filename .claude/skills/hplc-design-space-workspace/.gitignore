@@ -1,0 +1,4 @@
+# machine-generated eval artifacts (transcripts, raw logs) — keep repo tidy
+run_loop.log
+report.html
+results/
