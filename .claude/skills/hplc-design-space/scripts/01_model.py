@@ -125,23 +125,37 @@ def resolution(tR_a, Wb_a, tR_b, Wb_b):
     return 2.0 * np.abs(tR_a - tR_b) / (Wb_a + Wb_b)
 
 
-def separation(peaks, T, phi, F, Vm, L_mm, day=0):
+def separation(peaks, T, phi, F, Vm, L_mm, day=0, target="TP", interfering=None):
     """
-    3ピーク（'TP','IP1','IP2'）の予測と Rs1/Rs2/min を返す。
-      Rs1 = TP–IP1、 Rs2 = TP–IP2（いずれも化合物の同一性で固定）
-    最適化目標は Rs_min = min{Rs1, Rs2}。
+    目的ピーク（target）と任意個の夾雑ピーク（interfering）の予測と Rs を返す。
+    各 Rs は化合物の同一性で固定（target と各 IP の間。絶対値でクロスオーバー対応）。
+    最適化目標は Rs_min = 全 IP に対する Rs の最小値。
+    interfering=None なら peaks のうち target 以外を全部使う。
+    戻り値: {target: 予測, 各IP名: 予測, 'Rs_each': {IP名:Rs}, 'Rs_min': ...,
+             （後方互換）該当すれば 'Rs1','Rs2' も付く}
     """
-    tp = predict_peak(peaks["TP"], T, phi, F, Vm, L_mm, day)
-    ip1 = predict_peak(peaks["IP1"], T, phi, F, Vm, L_mm, day)
-    ip2 = predict_peak(peaks["IP2"], T, phi, F, Vm, L_mm, day)
-    Rs1 = resolution(tp["tR"], tp["Wb"], ip1["tR"], ip1["Wb"])
-    Rs2 = resolution(tp["tR"], tp["Wb"], ip2["tR"], ip2["Wb"])
-    return {
-        "Rs1": Rs1,
-        "Rs2": Rs2,
-        "Rs_min": np.minimum(Rs1, Rs2),
-        "TP": tp, "IP1": ip1, "IP2": ip2,
-    }
+    if interfering is None:
+        interfering = [k for k in peaks.keys() if k != target]
+    tp = predict_peak(peaks[target], T, phi, F, Vm, L_mm, day)
+    out = {target: tp}
+    rs_each = {}
+    rs_vals = []
+    for ip in interfering:
+        p = predict_peak(peaks[ip], T, phi, F, Vm, L_mm, day)
+        out[ip] = p
+        rs = resolution(tp["tR"], tp["Wb"], p["tR"], p["Wb"])
+        rs_each[ip] = rs
+        rs_vals.append(rs)
+    rs_min = rs_vals[0]
+    for r in rs_vals[1:]:
+        rs_min = np.minimum(rs_min, r)
+    out["Rs_each"] = rs_each
+    out["Rs_min"] = rs_min
+    if "IP1" in rs_each:
+        out["Rs1"] = rs_each["IP1"]
+    if "IP2" in rs_each:
+        out["Rs2"] = rs_each["IP2"]
+    return out
 
 
 # ──────────────────────────────

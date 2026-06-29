@@ -191,7 +191,7 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                         model_mod=None, peaks=None, factors=None,
                         Vm=None, L_mm=None, day=0, cloud_style="volume",
                         wall_side="auto", n_contours=5, surface_count=30,
-                        rotate_frames=60, rotate_duration_ms=80):
+                        rotate_frames=120, rotate_duration_ms=33):
     """
     04_optimize.evaluate_grid の結果と推奨条件 rec から
     対話的 3D 図を作成し plotly Figure を返す。
@@ -325,7 +325,8 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                 dict(label="▶ 自動回転", method="animate",
                      args=[None, {"frame": {"duration": int(rotate_duration_ms), "redraw": True},
                                   "fromcurrent": True, "mode": "immediate",
-                                  "transition": {"duration": 0}}]),
+                                  "transition": {"duration": int(rotate_duration_ms),
+                                                 "easing": "linear"}}]),
                 dict(label="⏸ 停止", method="animate",
                      args=[[None], {"frame": {"duration": 0, "redraw": False},
                                     "mode": "immediate"}]),

@@ -67,26 +67,29 @@ def _in_range_mask(T, phi, F, factors):
 # 合格判定
 # ──────────────────────────────
 def evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
-                  extrapolate=0.0):
+                  extrapolate=0.0, target="TP", interfering=None):
     """
-    格子の全点で 3 ピークを予測し、合格条件を判定する。
+    格子の全点で目的＋夾雑ピークを予測し、合格条件を判定する（夾雑ピーク数は任意）。
     extrapolate>0 のとき、評価格子だけ因子範囲の外まで広げる（外挿。検証外の予測）。
     戻り値 dict:
       T, phi, F        : 各点の実条件（1次元配列）
-      Rs_min           : 各点の min{Rs1,Rs2}
-      tR_TP, tR_last   : 各点の TP 保持時間 / 最遅ピーク保持時間
-      pass_mask        : 3条件すべて満たすか（bool 配列）＝デザインスペース
+      Rs_min           : 各点の 全夾雑ピークに対する Rs の最小
+      tR_TP, tR_last   : 目的ピーク保持時間 / 最遅ピーク保持時間（全ピークの max）
+      pass_mask        : 合格条件を満たすか（bool 配列）＝デザインスペース
       in_range         : 元の因子範囲（検証済み）内か。推奨条件はここからのみ選ぶ
       axes             : (T_ax, P_ax, F_ax)
     """
+    if interfering is None:
+        interfering = [k for k in peaks.keys() if k != target]
     eval_factors = expand_factors(factors, extrapolate) if extrapolate > 0 else factors
     T, phi, F, axes = make_grid(eval_factors, n=n)
     in_range = _in_range_mask(T, phi, F, factors)
-    sep = model_mod.separation(peaks, T, phi, F, Vm, L_mm, day=day)
+    sep = model_mod.separation(peaks, T, phi, F, Vm, L_mm, day=day,
+                               target=target, interfering=interfering)
 
-    tR_TP = sep["TP"]["tR"]
-    # クロスオーバー対応: 最遅ピークは3本のうちの max（入れ替わるため）
-    tR_last = np.maximum.reduce([sep["TP"]["tR"], sep["IP1"]["tR"], sep["IP2"]["tR"]])
+    tR_TP = sep[target]["tR"]
+    # クロスオーバー対応: 最遅ピークは全ピークの max（溶出順が入れ替わるため）
+    tR_last = np.maximum.reduce([sep[nm]["tR"] for nm in [target] + list(interfering)])
 
     # 合格条件: Rs_min と t_R(TP)。
     # tR_last_max は「データ取り段階の洗浄前制約」であってデザインスペースの合否ではないため、
@@ -176,11 +179,12 @@ def max_margin_point(grid_result, factors):
 
 
 def optimize(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
-             extrapolate=0.0):
+             extrapolate=0.0, target="TP", interfering=None):
     """格子評価 → 最大余裕点までを一括実行。戻り値: (grid_result, recommend dict or None)。
-    extrapolate>0 で評価格子を因子範囲の外まで広げる（推奨は元範囲内から選ぶ）。"""
+    extrapolate>0 で評価格子を因子範囲の外まで広げる（推奨は元範囲内から選ぶ）。
+    夾雑ピーク数は interfering で任意（None なら target 以外すべて）。"""
     grid = evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=n, day=day,
-                         extrapolate=extrapolate)
+                         extrapolate=extrapolate, target=target, interfering=interfering)
     rec = max_margin_point(grid, factors)
     return grid, rec
 
