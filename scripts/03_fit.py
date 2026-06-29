@@ -103,27 +103,32 @@ def _rmse(a, b):
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
-def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True):
+def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
+            peak_names=None):
     """
-    全3ピークの保持＋幅をフィットし、01_model 形式の peaks dict と診断を返す。
+    指定ピーク（既定は IP1/TP/IP2）の保持＋幅をフィットし、peaks dict と診断を返す。
+    夾雑ピーク数は peak_names で任意に指定できる。
+    各ピークは欠損（NaN）行をそのピークだけ除外してフィットする（部分欠損に頑健）。
     戻り値: (peaks_dict, diagnostics_dict)
       peaks_dict[name] = {a,b,c,d,e,delta,A,B,C}
-      diagnostics[name] = {'R2_retention','R2_width','RMSE_tR_min','RMSE_Wh_min'}
+      diagnostics[name] = {'R2_retention','R2_width','RMSE_tR_min','RMSE_Wh_min','n'}
 
     注: 実験範囲が狭く保持の説明変数は多重共線。個別係数は一意に決まりにくいが、
     予測（t_R・W_h・Rs）は安定する。品質は係数でなく予測スケールの RMSE で見るのが妥当。
     """
-    F = df["F"].to_numpy(dtype=float)
+    names = PEAKS if peak_names is None else list(peak_names)
     peaks = {}
     diagnostics = {}
-    for name in PEAKS:
-        ret, ret_res = fit_retention(df, name, Vm, include_d, include_e, include_day)
-        wid, wid_res = fit_width(df, name, Vm, L_mm)
+    for name in names:
+        sub = df.dropna(subset=[f"tR_{name}", f"Wh_{name}"])  # 欠損行を除外
+        ret, ret_res = fit_retention(sub, name, Vm, include_d, include_e, include_day)
+        wid, wid_res = fit_width(sub, name, Vm, L_mm)
         peaks[name] = {**ret, **wid}
 
         # 予測スケールでの当てはまり（本当に意味のある指標）
-        tR_meas = df[f"tR_{name}"].to_numpy(dtype=float)
-        Wh_meas = df[f"Wh_{name}"].to_numpy(dtype=float)
+        F = sub["F"].to_numpy(dtype=float)
+        tR_meas = sub[f"tR_{name}"].to_numpy(dtype=float)
+        Wh_meas = sub[f"Wh_{name}"].to_numpy(dtype=float)
         tR_hat = (Vm / F) * (1.0 + np.exp(ret_res.fittedvalues))   # ln k → k → t_R
         N_hat = L_mm / wid_res.fittedvalues                        # H → N
         Wh_hat = np.sqrt(EIGHT_LN2) * tR_meas / np.sqrt(N_hat)
@@ -133,6 +138,7 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True):
             "R2_width": wid_res.rsquared,
             "RMSE_tR_min": _rmse(tR_hat, tR_meas),
             "RMSE_Wh_min": _rmse(Wh_hat, Wh_meas),
+            "n": len(sub),
         }
     return peaks, diagnostics
 
@@ -141,15 +147,17 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True):
 # 合成データ（動作確認用）
 # ──────────────────────────────
 def simulate_measurements(model_mod, true_peaks, design_df, Vm, L_mm,
-                          noise_tR=0.01, noise_Wh=0.002, seed=0):
-    """既知パラメータ true_peaks から t_R・W_h を生成し、計測ノイズを足す（フィット検証用）。"""
+                          noise_tR=0.01, noise_Wh=0.002, seed=0, peak_names=None):
+    """既知パラメータ true_peaks から t_R・W_h を生成し、計測ノイズを足す（フィット検証用）。
+    peak_names で対象ピークを指定（既定は IP1/TP/IP2）。"""
     rng = np.random.default_rng(seed)
     df = design_df.copy()
     T = df["T"].to_numpy(dtype=float)
     phi = df["phi"].to_numpy(dtype=float)
     F = df["F"].to_numpy(dtype=float)
     day = df["day"].to_numpy(dtype=float)
-    for name in PEAKS:
+    names = PEAKS if peak_names is None else list(peak_names)
+    for name in names:
         pred = model_mod.predict_peak(true_peaks[name], T, phi, F, Vm, L_mm, day=day)
         df[f"tR_{name}"] = pred["tR"] + rng.normal(0, noise_tR, len(df))
         df[f"Wh_{name}"] = pred["Wh"] + rng.normal(0, noise_Wh, len(df))

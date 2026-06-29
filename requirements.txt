@@ -7,10 +7,10 @@ pyyaml
 openpyxl          # Excel 雛形（.xlsx）の読み書き
 
 # 可視化・フロントエンド（scripts/05 と app.py 専用。Excel 側では不要）
-plotly
+plotly>=5.18,<6   # 回転GIF用に kaleido 0.2.1 と互換のある 5系に固定
 matplotlib        # 壁の等高線の座標抽出に使用（描画は Agg、画面なし）
 streamlit         # Web アプリの入口（streamlit run app.py）
 
-# 静止画 PNG / 回転 GIF 書き出し（任意。fig.write_image・回転GIFを使う場合のみ）
-# kaleido          # 静止画レンダラ（要 Chrome。plotly_get_chrome で導入）
+# 静止画 PNG / 回転 GIF 書き出し
+kaleido==0.2.1    # 静止画レンダラ（0.2.1 は Chromium 同梱・Streamlit Cloud でも動く）
 pillow            # 回転 GIF の連結（静止画フレーム → GIF）
