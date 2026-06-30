@@ -189,8 +189,11 @@ def run_fit_and_designspace(df, header_prefix=""):
     if range_mode.startswith("外挿"):
         extrapolate = oc1.slider("外挿の広さ（範囲幅に対する割合）", 0.0, 0.5, 0.1, step=0.05,
                                  key=header_prefix + "ext")
+        restrict_range = False           # 外挿域も推奨候補に含める
+        oc1.caption("⚠ 外挿域から推奨点を選びます（検証外の予測のため、採用時は追加検証を推奨）。")
     else:
         extrapolate = 0.0
+        restrict_range = True
 
     MODE_LABELS = {
         "最も頑健（不合格領域から最も遠い）": "robust",
@@ -215,7 +218,7 @@ def run_fit_and_designspace(df, header_prefix=""):
 
     grid, rec = opt.optimize(model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n,
                              extrapolate=extrapolate, target=TARGET, interfering=INTERFERING,
-                             mode=opt_mode, delta=delta)
+                             mode=opt_mode, delta=delta, restrict_range=restrict_range)
     n_pass, n_total = int(grid["pass_mask"].sum()), grid["pass_mask"].size
     c1, c2 = st.columns(2)
     c1.metric("合格領域の広さ", f"{n_pass} / {n_total} 点", f"{100*n_pass/n_total:.1f}%")
