@@ -37,8 +37,21 @@ def _load(path, name):
     return mod
 
 
+def _scripts_signature():
+    """scripts/*.py の内容ハッシュ。中身が変わると load_modules のキャッシュキーも変わり、
+    再デプロイ後に古いモジュールが居座る（AttributeError 等）のを防ぐ。"""
+    import hashlib
+    h = hashlib.md5()
+    for fn in sorted(os.listdir(SCRIPTS)):
+        if fn.endswith(".py"):
+            with open(os.path.join(SCRIPTS, fn), "rb") as f:
+                h.update(f.read())
+    return h.hexdigest()
+
+
 @st.cache_resource
-def load_modules():
+def load_modules(_sig):
+    # _sig はキャッシュキー専用（中身は使わない）。スクリプトが変わると再ロードされる。
     model = _load(os.path.join(SCRIPTS, "01_model.py"), "model01")
     design = _load(os.path.join(SCRIPTS, "02_design.py"), "design02")
     fit = _load(os.path.join(SCRIPTS, "03_fit.py"), "fit03")
@@ -80,7 +93,7 @@ def read_runs(uploaded, required_cols):
 st.set_page_config(page_title="HPLC デザインスペース最適化", layout="wide")
 st.title("HPLC デザインスペース最適化")
 
-model, design, fit, opt, ds = load_modules()
+model, design, fit, opt, ds = load_modules(_scripts_signature())
 cfg, cfg_name = load_config()
 if cfg is None:
     st.error("config.yaml / config.example.yaml が見つかりません。")
