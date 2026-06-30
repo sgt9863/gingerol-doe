@@ -67,7 +67,9 @@ def to_excel_bytes(df, sheet_name="runs"):
 
 def read_runs(uploaded, required_cols):
     """アップロードされた xlsx/csv を読み、必要列を検証して返す（不足なら None と不足列）。"""
-    df = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
+    df = (pd.read_csv(uploaded, keep_default_na=True, na_values=["", " "])
+          if uploaded.name.endswith(".csv")
+          else pd.read_excel(uploaded, keep_default_na=True, na_values=["", " "]))
     missing = [c for c in required_cols if c not in df.columns]
     return (None, missing) if missing else (df, [])
 
@@ -76,8 +78,7 @@ def read_runs(uploaded, required_cols):
 # 画面共通：設定（サイドバー）
 # ──────────────────────────────
 st.set_page_config(page_title="HPLC デザインスペース最適化", layout="wide")
-st.title("HPLC デザインスペース最適化（10-gingerol）")
-st.caption("CCD計画 → 実験 → D最適追加 → フィット → デザインスペース可視化までを一気通貫で行う")
+st.title("HPLC デザインスペース最適化")
 
 model, design, fit, opt, ds = load_modules()
 cfg, cfg_name = load_config()
@@ -147,11 +148,14 @@ st.sidebar.subheader("実験計画")
 n_center = st.sidebar.slider("CCD 中心点の数", 3, 8, 6)
 n_augment = st.sidebar.slider("D最適 追加点の数", 0, 16, 8)
 n_bridge = st.sidebar.slider("Day2 橋渡し中心点", 0, 5, 3)
-grid_n = st.sidebar.slider("デザインスペース格子の細かさ（計算解像度・大=滑らか/やや重い）",
-                           11, 71, 51, step=2)
-extrapolate = st.sidebar.slider("外挿（予測範囲を因子範囲の外へ拡張）", 0.0, 0.5, 0.0, step=0.05,
-                                help="0 で因子範囲内のみ。>0 で雲・グラフを範囲外まで広げる（検証外の予測）。"
-                                     "推奨条件は安全のため検証済みの元範囲内からのみ選ぶ。")
+_ALPHA_OPTIONS = {
+    "面心（α=1.0）— 軸点が low/high に乗る": 1.0,
+    "回転可能（α≈1.682）— 予測精度が均一": (2 ** 3) ** 0.25,
+}
+_alpha_label = st.sidebar.radio("CCD 軸点の距離 α", list(_ALPHA_OPTIONS.keys()), index=0)
+alpha_ccd = _ALPHA_OPTIONS[_alpha_label]
+st.sidebar.caption(f"α = {alpha_ccd:.4f}")
+grid_n = 51
 
 
 def run_fit_and_designspace(df, header_prefix=""):
@@ -175,29 +179,76 @@ def run_fit_and_designspace(df, header_prefix=""):
                "保持の個別係数は実験範囲が狭く多重共線のため深読みせず、予測精度で評価する。")
 
     st.subheader(f"{header_prefix}デザインスペースと推奨条件")
+
+    # ── 計算範囲（内挿 / 外挿）と最適化基準を 3D の手前で選ぶ ──
+    oc1, oc2 = st.columns(2)
+    range_mode = oc1.radio(
+        "計算範囲", ["検証範囲内（内挿）", "外挿あり（範囲外も予測）"],
+        key=header_prefix + "rangemode",
+        help="外挿は因子範囲の外まで雲・グラフを広げます（検証外の予測）。推奨条件は安全のため検証済み範囲内からのみ選びます。")
+    if range_mode.startswith("外挿"):
+        extrapolate = oc1.slider("外挿の広さ（範囲幅に対する割合）", 0.0, 0.5, 0.1, step=0.05,
+                                 key=header_prefix + "ext")
+        restrict_range = False           # 外挿域も推奨候補に含める
+        oc1.caption("⚠ 外挿域から推奨点を選びます（検証外の予測のため、採用時は追加検証を推奨）。")
+    else:
+        extrapolate = 0.0
+        restrict_range = True
+
+    MODE_LABELS = {
+        "最も頑健（不合格領域から最も遠い）": "robust",
+        "変動範囲全域が合格で t_R(TP) 最速": "fastest_tR",
+        "変動範囲全域が合格で ACN 消費量が最小": "min_acn",
+    }
+    mode_label = oc2.radio("最適化の基準", list(MODE_LABELS.keys()),
+                           key=header_prefix + "optmode")
+    opt_mode = MODE_LABELS[mode_label]
+    delta = None
+    if opt_mode in ("fastest_tR", "min_acn"):
+        oc2.caption("各因子が運用中にブレうる半幅（±）を設定。その箱の全域が合格な点だけを候補にします。")
+        dc = oc2.columns(3)
+        delta = {
+            "T": float(dc[0].number_input("±T [℃]", value=1.0, min_value=0.0, step=0.5,
+                                          key=header_prefix + "dT")),
+            "phi": float(dc[1].number_input("±φ [分率]", value=0.01, min_value=0.0, step=0.005,
+                                            format="%.3f", key=header_prefix + "dphi")),
+            "F": float(dc[2].number_input("±F [mL/min]", value=0.02, min_value=0.0, step=0.01,
+                                          format="%.2f", key=header_prefix + "dF")),
+        }
+
     grid, rec = opt.optimize(model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n,
-                             extrapolate=extrapolate, target=TARGET, interfering=INTERFERING)
+                             extrapolate=extrapolate, target=TARGET, interfering=INTERFERING,
+                             mode=opt_mode, delta=delta, restrict_range=restrict_range)
     n_pass, n_total = int(grid["pass_mask"].sum()), grid["pass_mask"].size
     c1, c2 = st.columns(2)
     c1.metric("合格領域の広さ", f"{n_pass} / {n_total} 点", f"{100*n_pass/n_total:.1f}%")
     if rec is None:
-        c2.error("合格領域なし。因子範囲か合格条件を見直してください。")
+        if opt_mode == "robust":
+            c2.error("合格領域なし。因子範囲か合格条件を見直してください。")
+        else:
+            c2.error("変動範囲の箱が全域合格となる点がありません。±の幅を小さくするか合格条件を見直してください。")
         return
     s = model.separation(peaks_hat, rec["T"], rec["phi"], rec["F"], Vm, L_mm,
                          target=TARGET, interfering=INTERFERING)
     last = float(max(s[nm]["tR"] for nm in ALL_PEAKS))
+    # 基準ごとの補足（目的関数の達成値）
+    if opt_mode == "robust":
+        obj_line = f"- 余裕（正規化距離）= {rec['margin']:.3f}\n"
+    elif opt_mode == "fastest_tR":
+        obj_line = f"- 変動範囲全域が合格、t_R(TP) 最速 = {rec['objective']:.2f} 分\n"
+    else:
+        obj_line = f"- 変動範囲全域が合格、ACN 消費量最小 = {rec['objective']:.3f} mL\n"
     c2.success(
-        f"**推奨条件（最大余裕点）**\n\n"
+        f"**推奨条件（{mode_label}）**\n\n"
         f"- T = {rec['T']:.1f} ℃\n- φ = {rec['phi']:.3f}（ACN 分率）\n"
-        f"- F = {rec['F']:.2f} mL/min\n\n"
+        f"- F = {rec['F']:.2f} mL/min\n"
+        f"{obj_line}\n"
         f"→ Rs_min={float(s['Rs_min']):.2f} / t_R(TP)={float(s[TARGET]['tR']):.2f}分 / 最遅={last:.2f}分"
     )
 
     st.subheader(f"{header_prefix}3D デザインスペース")
-    cc1, cc2, cc3 = st.columns(3)
-    cloud_style = "volume" if cc1.radio(
-        "雲の表現", ["無段階のボリューム", "散布点"],
-        key=header_prefix + "cloud") == "無段階のボリューム" else "scatter"
+    cloud_style = "volume"
+    cc2, cc3 = st.columns(2)
     side_map = {"自動": "auto", "手前": "low", "奥": "high"}
     side_lr = side_map[cc2.radio("T壁・φ壁（手前/奥）", ["自動", "手前", "奥"],
                                  key=header_prefix + "wall_lr")]
@@ -221,7 +272,10 @@ def run_fit_and_designspace(df, header_prefix=""):
 
     rec_df = pd.DataFrame([{
         "T_degC": rec["T"], "phi_ACN": rec["phi"], "F_mL_min": rec["F"],
-        "margin_normalized": rec["margin"], "Rs_min": float(s["Rs_min"]),
+        "criterion": mode_label,
+        "margin_normalized": rec.get("margin", ""),
+        "objective": rec.get("objective", ""),
+        "Rs_min": float(s["Rs_min"]),
         "tR_TP_min": float(s[TARGET]["tR"]), "tR_last_min": last,
     }])
     dc1, dc2 = st.columns(2)
@@ -254,14 +308,14 @@ def run_fit_and_designspace(df, header_prefix=""):
 # タブ構成
 # ──────────────────────────────
 tab1, tab2, tab3, tab4, tab_demo = st.tabs(
-    ["① 計画(CCD)", "② Day1 フィット", "③ D最適 augment", "④ 最終解析", "デモ"])
+    ["① 計画(CCD)", "② フィット & 結果", "③ D最適 augment（任意）", "④ 最終解析", "デモ"])
 
 # ── ① CCD 計画 ──
 with tab1:
     st.header("① Day1 の実験計画（CCD）")
     st.write(f"中心複合計画（頂点8＋軸上6＋中心点）を生成します。Excel 雛形をDLし、"
              f"各条件で測った {len(ALL_PEAKS)} ピーク（{', '.join(ALL_PEAKS)}）の t_R・W_h を空欄に記入してください。")
-    ccd = design.ccd_design(factors, n_center=n_center, alpha=1.0, day=0).copy()
+    ccd = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0).copy()
     ccd.insert(0, "run", np.arange(1, len(ccd) + 1))
     for col in RESPONSE_COLS:
         ccd[col] = np.nan
@@ -271,24 +325,28 @@ with tab1:
                        file_name="runs_day1_template.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# ── ② Day1 フィット ──
+# ── ② フィット & 結果（CCD だけで最終結果まで出る）──
 with tab2:
-    st.header("② Day1 データのフィット")
+    st.header("② フィット & 結果（CCD データだけで完結）")
+    st.success("**CCD（①）の実測データだけで、フィット → デザインスペース → 推奨条件まで出ます。**"
+               "D最適（③）は精度を上げたい場合の任意ステップで、省略できます。")
     st.write("①の雛形に実測値を入れたファイルを読み込みます（xlsx/csv）。"
-             "保持3本・幅3本のモデルをフィットし、当てはまりを確認します。")
-    up1 = st.file_uploader("記入済み Day1 データ", type=["xlsx", "csv"], key="up1")
+             "保持・幅のモデルをフィットし、当てはまり・デザインスペース・推奨条件を表示します。")
+    up1 = st.file_uploader("記入済み CCD データ", type=["xlsx", "csv"], key="up1")
     if up1 is not None:
         df1, missing = read_runs(up1, REQUIRED_COLS)
         if missing:
             st.error(f"必要な列が足りません: {missing}")
         else:
             st.dataframe(df1.head(12), use_container_width=True)
-            run_fit_and_designspace(df1, header_prefix="Day1 ")
-            st.info("Day1 だけでも暫定のデザインスペースは出ます。精度を上げるなら③へ進んでください。")
+            run_fit_and_designspace(df1, header_prefix="CCD ")
+            st.info("これで最終結果です。さらに境界の精度を上げたい場合のみ ③ D最適 → ④ に進んでください（任意）。")
 
-# ── ③ D最適 augment ──
+# ── ③ D最適 augment（任意）──
 with tab3:
-    st.header("③ D最適 augment（Day2 の追加実験）")
+    st.header("③ D最適 augment（Day2 の追加実験・任意）")
+    st.caption("このステップは**任意**です。②の CCD だけで最終結果は得られます。"
+               "デザインスペース境界の予測精度をさらに上げたいときだけ実施してください。")
     st.write("Day1 の CCD に D最適で情報量の高い点を追加します。"
              "別日に実施するため、冒頭に橋渡し中心点（日間差の測定用）を入れます。")
     basis = st.radio(
@@ -315,7 +373,7 @@ with tab3:
         st.caption("補足：保持モデルは係数について線形なので、(A)の追加点はフィット係数の値に依存しません"
                    "（モデルの形が決まれば最適点が決まる）。データ不要で計画できます。")
 
-    ccd_for_aug = design.ccd_design(factors, n_center=n_center, alpha=1.0, day=0)
+    ccd_for_aug = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0)
     parts = []
     if n_bridge > 0:
         parts.append(design.bridge_center(factors, n_bridge=n_bridge, day=1))
@@ -324,11 +382,11 @@ with tab3:
             st.info("(B) は Day1 データの読み込み後に追加点を表示します。")
         elif use_rs:
             parts.append(design.augment_design(
-                factors, ccd_for_aug, n_augment, alpha=1.0, day=1, method="rs_local",
+                factors, ccd_for_aug, n_augment, alpha=alpha_ccd, day=1, method="rs_local",
                 Vm=Vm, L_mm=L_mm, model_mod=model, peaks=peaks_for_aug,
                 Rs_target=criteria["Rs_min"]))
         else:
-            parts.append(design.augment_design(factors, ccd_for_aug, n_augment, alpha=1.0,
+            parts.append(design.augment_design(factors, ccd_for_aug, n_augment, alpha=alpha_ccd,
                                                 day=1, method="model", Vm=Vm, L_mm=L_mm))
     if parts:
         day2 = pd.concat(parts, ignore_index=True)
@@ -375,7 +433,7 @@ with tab_demo:
     if st.button("デモを実行"):
         st.session_state["demo_ran"] = True
     if st.session_state.get("demo_ran"):
-        plan = design.build_runs_template(factors, n_center=n_center, alpha=1.0,
+        plan = design.build_runs_template(factors, n_center=n_center, alpha=alpha_ccd,
                                           n_bridge=n_bridge, n_augment=n_augment,
                                           method="model", Vm=Vm, L_mm=L_mm)
         # 選んだピーク数に合わせて合成パラメータを作る（TP の周りに IP を散らす）
