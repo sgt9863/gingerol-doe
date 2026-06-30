@@ -178,14 +178,102 @@ def max_margin_point(grid_result, factors):
     }
 
 
+# ──────────────────────────────
+# 変動範囲（ロバスト箱）を満たす点の中での最適化
+# ──────────────────────────────
+def _reshape_to_grid(arr, axes):
+    """1次元（meshgrid indexing="ij" 由来）を (nT, nφ, nF) の3次元に戻す。"""
+    nt, npp, nf = len(axes[0]), len(axes[1]), len(axes[2])
+    return np.asarray(arr).reshape(nt, npp, nf)
+
+
+def robust_box_mask(grid_result, delta):
+    """
+    各格子点を中心にした「変動範囲の箱」（各因子 ±delta[f]）の全域が合格かを返す。
+    ＝合格マスクを箱サイズで収縮（erosion）した bool 配列。
+    箱が評価格子の外にはみ出す端の点は「保証できない」ので不合格（=非ロバスト）扱い。
+    delta は {"T":℃, "phi":分率, "F":mL/min} の半幅。0 の因子はその軸方向に広げない。
+    """
+    axes = grid_result["axes"]
+    pass3d = _reshape_to_grid(grid_result["pass_mask"], axes).astype(float)
+    sizes = []
+    for ax, f in zip(axes, ["T", "phi", "F"]):
+        step = (ax[1] - ax[0]) if len(ax) > 1 else 1.0
+        k = int(np.floor((delta.get(f, 0.0)) / step + 1e-9)) if step > 0 else 0
+        sizes.append(2 * k + 1)            # ±k 格子 → 箱の一辺
+    try:
+        from scipy.ndimage import minimum_filter
+        eroded = minimum_filter(pass3d, size=sizes, mode="constant", cval=0.0)
+    except ImportError:
+        eroded = pass3d                    # scipy 無し（Excel貼付）は収縮なしで代替
+    return (eroded >= 0.5).ravel()
+
+
+def _candidate_mask(grid_result, robust):
+    """推奨候補 = ロバスト合格 かつ 検証済み範囲内（in_range）。"""
+    in_range = grid_result.get("in_range")
+    return robust if in_range is None else (robust & in_range)
+
+
+def _pack(grid_result, idx, extra):
+    """格子 index から推奨条件 dict を組む。"""
+    out = {
+        "T": float(grid_result["T"][idx]),
+        "phi": float(grid_result["phi"][idx]),
+        "F": float(grid_result["F"][idx]),
+        "index": int(idx),
+    }
+    out.update(extra)
+    return out
+
+
+def fastest_tR_point(grid_result, delta):
+    """変動範囲の箱が全域合格な点のうち、t_R(TP) が最速の点を返す。無ければ None。"""
+    cand = _candidate_mask(grid_result, robust_box_mask(grid_result, delta))
+    if not cand.any():
+        return None
+    idx = np.flatnonzero(cand)
+    best = int(idx[np.argmin(grid_result["tR_TP"][idx])])
+    return _pack(grid_result, best, {"objective": float(grid_result["tR_TP"][best])})
+
+
+def min_acn_point(grid_result, delta):
+    """変動範囲の箱が全域合格な点のうち、TP 溶出までの ACN 消費量が最小の点を返す。
+    ACN 消費量 = φ × F × t_R(TP)（移動相通液量 F·t_R に ACN 分率 φ を掛けた体積 [mL]）。"""
+    cand = _candidate_mask(grid_result, robust_box_mask(grid_result, delta))
+    if not cand.any():
+        return None
+    acn = grid_result["phi"] * grid_result["F"] * grid_result["tR_TP"]
+    idx = np.flatnonzero(cand)
+    best = int(idx[np.argmin(acn[idx])])
+    return _pack(grid_result, best, {"objective": float(acn[best])})
+
+
+def recommend(grid_result, factors, mode="robust", delta=None):
+    """最適化基準を選んで推奨条件を返す。
+      mode="robust"     … 最大余裕点（不合格領域から最も遠い）
+      mode="fastest_tR" … 変動範囲全域が合格で t_R(TP) 最速（delta 必須）
+      mode="min_acn"    … 変動範囲全域が合格で ACN 消費量最小（delta 必須）
+    """
+    if mode == "robust":
+        return max_margin_point(grid_result, factors)
+    if mode == "fastest_tR":
+        return fastest_tR_point(grid_result, delta or {})
+    if mode == "min_acn":
+        return min_acn_point(grid_result, delta or {})
+    raise ValueError(f"unknown mode: {mode}")
+
+
 def optimize(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
-             extrapolate=0.0, target="TP", interfering=None):
-    """格子評価 → 最大余裕点までを一括実行。戻り値: (grid_result, recommend dict or None)。
+             extrapolate=0.0, target="TP", interfering=None,
+             mode="robust", delta=None):
+    """格子評価 → 推奨条件までを一括実行。戻り値: (grid_result, recommend dict or None)。
     extrapolate>0 で評価格子を因子範囲の外まで広げる（推奨は元範囲内から選ぶ）。
+    mode で最適化基準を選ぶ（robust / fastest_tR / min_acn）。
     夾雑ピーク数は interfering で任意（None なら target 以外すべて）。"""
     grid = evaluate_grid(model_mod, peaks, factors, Vm, L_mm, criteria, n=n, day=day,
                          extrapolate=extrapolate, target=target, interfering=interfering)
-    rec = max_margin_point(grid, factors)
+    rec = recommend(grid, factors, mode=mode, delta=delta)
     return grid, rec
 
 
