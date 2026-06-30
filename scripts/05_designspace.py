@@ -28,6 +28,53 @@ except ImportError as e:
 
 
 # ──────────────────────────────
+# 実験計画（設計点）の 3D 散布
+# ──────────────────────────────
+_DESIGN_COLORS = {
+    "factorial": "#1f77b4", "axial": "#d62728", "center": "#2ca02c",
+    "bridge_center": "#9467bd", "augment_model": "#ff7f0e", "augment_rs": "#ff7f0e",
+}
+
+
+def _box_edges(factors):
+    """因子範囲 low/high の直方体（頂点が乗るべき箱）の12辺を1本の線トレース用座標で返す。"""
+    Tl, Th = factors["T"]["low"], factors["T"]["high"]
+    Pl, Ph = factors["phi"]["low"], factors["phi"]["high"]
+    Fl, Fh = factors["F"]["low"], factors["F"]["high"]
+    c = [(Tl, Pl, Fl), (Th, Pl, Fl), (Th, Ph, Fl), (Tl, Ph, Fl),
+         (Tl, Pl, Fh), (Th, Pl, Fh), (Th, Ph, Fh), (Tl, Ph, Fh)]
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+             (0, 4), (1, 5), (2, 6), (3, 7)]
+    xs, ys, zs = [], [], []
+    for a, b in edges:
+        xs += [c[a][0], c[b][0], None]
+        ys += [c[a][1], c[b][1], None]
+        zs += [c[a][2], c[b][2], None]
+    return xs, ys, zs
+
+
+def plot_design_points_3d(df, factors=None, title="実験計画（CCD）の配置"):
+    """CCD/D最適の設計点を 3D 散布で表示。type で色分け。
+    factors を渡すと「指定範囲 low/high の箱」も点線で描く（頂点がこの角に乗るのが正しい）。"""
+    fig = go.Figure()
+    if factors is not None:
+        xs, ys, zs = _box_edges(factors)
+        fig.add_trace(go.Scatter3d(
+            x=xs, y=ys, z=zs, mode="lines", name="指定範囲 (low/high)",
+            line=dict(color="rgba(80,80,80,0.6)", width=3), hoverinfo="skip"))
+    for t, sub in df.groupby("type"):
+        fig.add_trace(go.Scatter3d(
+            x=sub["T"], y=sub["phi"], z=sub["F"], mode="markers", name=str(t),
+            marker=dict(size=5, color=_DESIGN_COLORS.get(str(t), "#888888")),
+            hovertemplate="type=%s<br>T=%%{x:.2f}<br>φ=%%{y:.3f}<br>F=%%{z:.3f}<extra></extra>" % t))
+    fig.update_layout(
+        title=title, height=520, legend_title="点の種類",
+        scene=dict(xaxis_title="T [℃]", yaxis_title="φ (ACN分率)", zaxis_title="F [mL/min]"),
+        margin=dict(l=0, r=0, t=40, b=0))
+    return fig
+
+
+# ──────────────────────────────
 # 3D デザインスペースプロット
 # ──────────────────────────────
 WALL_LEVELS = [1.0, 1.5, 2.0, 2.5, 3.0]   # 壁に描く Rs_min の等高線レベル（既定）
