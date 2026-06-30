@@ -29,11 +29,15 @@
       e     : 温度×溶媒の交互作用項（溶媒傾き S が温度で変わる効果。
               ピークごとに違うとクロスオーバーが起きる。不要なら 0）
       delta : 日間差（ブロック項。別日のオフセット）
-  width（幅・van Deemter）: A, B, C
-    H = A + B/u + C*u    （H=段高 [mm], u=線速度 [mm/min]）
+  width（幅・拡張 van Deemter）: A, B, C, D, E
+    H = A + B/u + C*u + D*phi + E/T_K   （H=段高 [mm], u=線速度 [mm/min], T_K=T+273.15）
       A : 渦拡散項 [mm]
       B : 縦拡散項 [mm^2/min]
       C : 物質移動抵抗項 [min]
+      D : 溶媒項（φ が段高に与える効果。0 で従来の u のみ van Deemter）
+      E : 温度項（1/T_K が段高に与える効果。0 で従来の u のみ van Deemter）
+    ※ u は流速 F でしか動かず範囲も狭いため、実データでは段高 H が T・φ で大きく
+      変わる。D・E を入れて T・φ 依存を拾うと幅の当てはまりが改善する（保持ほどは上がらない）。
 
 すべての関数は scalar でも numpy 配列でも動く（グリッド評価のためベクトル化対応）。
 """
@@ -75,10 +79,13 @@ def linear_velocity(F, Vm, L_mm):
     return L_mm * F / Vm
 
 
-def plate_count(F, Vm, L_mm, A, B, C):
-    """理論段数 N。van Deemter H = A + B/u + C*u、N = L/H。"""
+def plate_count(T, phi, F, Vm, L_mm, A, B, C, D=0.0, E=0.0):
+    """理論段数 N。拡張 van Deemter H = A + B/u + C*u + D*phi + E/T_K、N = L/H。
+    D, E は既定 0（与えなければ従来の u のみ van Deemter と一致）。"""
     u = linear_velocity(F, Vm, L_mm)
-    H = A + B / u + C * u
+    T_K = np.asarray(T, dtype=float) + KELVIN
+    phi_arr = np.asarray(phi, dtype=float)
+    H = A + B / u + C * u + D * phi_arr + E / T_K
     return L_mm / H
 
 
@@ -108,7 +115,8 @@ def predict_peak(peak, T, phi, F, Vm, L_mm, day=0):
         peak["a"], peak["b"], peak["c"],
         peak.get("d", 0.0), peak.get("e", 0.0), day, peak.get("delta", 0.0),
     )
-    N = plate_count(F, Vm, L_mm, peak["A"], peak["B"], peak["C"])
+    N = plate_count(T, phi, F, Vm, L_mm, peak["A"], peak["B"], peak["C"],
+                    peak.get("D", 0.0), peak.get("E", 0.0))
     return {
         "tR": tR,
         "N": N,
@@ -167,7 +175,7 @@ def example_peaks():
     実際は 03_fit.py が実測データから推定した値で置き換える。
     中水準（T=50, phi=0.45, F=0.6, Vm=0.24, L=100）で3ピークが ~7分付近・IP1<TP<IP2 になるよう設定。
     """
-    vd = {"A": 0.003, "B": 0.3, "C": 2.0e-5}   # van Deemter（3ピーク共通の例）
+    vd = {"A": 0.003, "B": 0.3, "C": 2.0e-5, "D": 0.0, "E": 0.0}   # 拡張 van Deemter（例）
     return {
         "IP1": {"a": -1.39, "b": 1800.0, "c": -3.2, "d": 0.0, "e": 0.0, "delta": 0.0, **vd},
         "TP":  {"a": -0.49, "b": 1500.0, "c": -3.0, "d": 0.0, "e": 0.0, "delta": 0.0, **vd},

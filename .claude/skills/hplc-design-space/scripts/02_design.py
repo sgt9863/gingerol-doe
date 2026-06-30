@@ -235,7 +235,7 @@ def d_optimal_augment_model(existing_real, n_add, factors, Vm, L_mm,
 # (B) Rs境界標的の局所D最適（フィット済みモデルのヤコビアンを使う）
 # ──────────────────────────────
 RET_KEYS = ["a", "b", "c", "d", "e"]   # 保持パラメータ
-WID_KEYS = ["A", "B", "C"]             # 幅パラメータ
+WID_KEYS = ["A", "B", "C", "D", "E"]   # 幅パラメータ（拡張 van Deemter: u + φ + 1/T_K）
 PEAK_NAMES = ["IP1", "TP", "IP2"]
 
 
