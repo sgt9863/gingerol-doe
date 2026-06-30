@@ -254,6 +254,9 @@ def run_fit_and_designspace(df, header_prefix=""):
     s = model.separation(peaks_hat, rec["T"], rec["phi"], rec["F"], Vm, L_mm,
                          target=TARGET, interfering=INTERFERING)
     last = float(max(s[nm]["tR"] for nm in ALL_PEAKS))
+    # 推奨点での Rs の推定精度（フィット係数の共分散から誤差伝搬・モンテカルロ）
+    rsci = opt.rs_confidence(model, peaks_hat, diag, rec["T"], rec["phi"], rec["F"],
+                             Vm, L_mm, target=TARGET, interfering=INTERFERING, n_samples=600)
     # 基準ごとの補足（目的関数の達成値）
     if opt_mode == "robust":
         obj_line = f"- 余裕（正規化距離）= {rec['margin']:.3f}\n"
@@ -266,8 +269,13 @@ def run_fit_and_designspace(df, header_prefix=""):
         f"- T = {rec['T']:.1f} ℃\n- φ = {rec['phi']:.3f}（ACN 分率）\n"
         f"- F = {rec['F']:.2f} mL/min\n"
         f"{obj_line}\n"
-        f"→ Rs_min={float(s['Rs_min']):.2f} / t_R(TP)={float(s[TARGET]['tR']):.2f}分 / 最遅={last:.2f}分"
+        f"→ Rs_min={float(s['Rs_min']):.2f} "
+        f"（95%CI {rsci['lo']:.2f}–{rsci['hi']:.2f}, ±{rsci['sd']:.2f}） "
+        f"/ t_R(TP)={float(s[TARGET]['tR']):.2f}分 / 最遅={last:.2f}分"
     )
+    if rsci["lo"] < float(criteria["Rs_min"]):
+        c2.caption("⚠ Rs の95%信頼区間の下限が合格基準を下回ります（フィットの不確かさを考えると"
+                   "ギリギリ）。余裕のある条件か、データ追加（③D最適）での精度向上を検討してください。")
 
     st.subheader(f"{header_prefix}3D デザインスペース")
     cloud_style = "volume"
@@ -305,6 +313,7 @@ def run_fit_and_designspace(df, header_prefix=""):
         "margin_normalized": rec.get("margin", ""),
         "objective": rec.get("objective", ""),
         "Rs_min": float(s["Rs_min"]),
+        "Rs_min_CI_lo": rsci["lo"], "Rs_min_CI_hi": rsci["hi"], "Rs_min_sd": rsci["sd"],
         "tR_TP_min": float(s[TARGET]["tR"]), "tR_last_min": last,
     }])
     dc1, dc2 = st.columns(2)
