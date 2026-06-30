@@ -32,7 +32,8 @@ except ImportError as e:
 # ──────────────────────────────
 _DESIGN_COLORS = {
     "factorial": "#1f77b4", "axial": "#d62728", "center": "#2ca02c",
-    "bridge_center": "#9467bd", "augment_model": "#ff7f0e", "augment_rs": "#ff7f0e",
+    "bbd": "#17becf", "bridge_center": "#9467bd",
+    "augment_model": "#ff7f0e", "augment_rs": "#ff7f0e",
 }
 
 
