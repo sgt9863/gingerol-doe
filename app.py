@@ -86,76 +86,94 @@ if cfg is None:
     st.error("config.yaml / config.example.yaml が見つかりません。")
     st.stop()
 
-st.sidebar.header("設定")
-st.sidebar.caption(f"読込: {cfg_name}")
-
+# ── 設定はサイドバーを廃止し、各設定を「最初に使うタブ」に配置する ──
+# 設定値は Streamlit が毎回すべてのタブを評価する性質を利用して受け渡す：
+#   ①計画タブ … 因子範囲(factors)・ピーク構成(ALL_PEAKS)・CCD設定(n_center, α)
+#   ②フィット&結果タブ … カラム(V_m)・合格条件(criteria)
+#   ③D最適タブ … 追加点数(n_augment)・橋渡し中心点(n_bridge)
+# 先のタブで定義した値を後のタブ（④・デモ含む）が参照する。
 fc = cfg["factors"]
-st.sidebar.subheader("因子範囲")
-sc = st.sidebar.columns(3)
-T_lo = sc[0].number_input("T 下限", value=float(fc["T"]["low"]))
-T_hi = sc[2].number_input("T 上限", value=float(fc["T"]["high"]))
-P_lo = sc[0].number_input("φ 下限", value=float(fc["phi"]["low"]), format="%.3f")
-P_hi = sc[2].number_input("φ 上限", value=float(fc["phi"]["high"]), format="%.3f")
-F_lo = sc[0].number_input("F 下限", value=float(fc["F"]["low"]), format="%.2f")
-F_hi = sc[2].number_input("F 上限", value=float(fc["F"]["high"]), format="%.2f")
-
-factors = {
-    "T":   {"low": T_lo, "center": (T_lo + T_hi) / 2, "high": T_hi},
-    "phi": {"low": P_lo, "center": (P_lo + P_hi) / 2, "high": P_hi},
-    "F":   {"low": F_lo, "center": (F_lo + F_hi) / 2, "high": F_hi},
-}
-
-# ── ピーク構成（目的ピーク＋夾雑ピークの数を可変に）──
-st.sidebar.subheader("ピーク構成")
-n_ip = int(st.sidebar.number_input("夾雑ピークの数（目的ピークの前後）", 1, 8, 1, step=1,
-                                   help="目的ピーク TP に対し、邪魔なピークを何本入れるか。既定1。"))
-TARGET = "TP"
-INTERFERING = [f"IP{i}" for i in range(1, n_ip + 1)]
-ALL_PEAKS = [TARGET] + INTERFERING
-RESPONSE_COLS = [f"tR_{p}" for p in ALL_PEAKS] + [f"Wh_{p}" for p in ALL_PEAKS]
-REQUIRED_COLS = ["T", "phi", "F", "day"] + RESPONSE_COLS
-st.sidebar.caption(f"ピーク: {TARGET}（目的）＋ {', '.join(INTERFERING)}")
-
 ac = cfg["acceptance_criteria"]
-st.sidebar.subheader("合格条件")
-criteria = {
-    "Rs_min": st.sidebar.number_input("Rs_min ≥", value=float(ac["Rs_min"]), format="%.1f"),
-    "tR_TP_max": st.sidebar.number_input("t_R(TP) ≤ [分]", value=float(ac["tR_TP_max"]), format="%.1f"),
-    # 最遅ピークの上限はデータ取り段階の洗浄前制約であり、デザインスペースの合否には含めない
-    "tR_last_max": None,
-}
-
-# ── カラム寸法 → V_m を幾何推算 ──
-# V_m = 空隙率 × π × (内径/2)² × 長さ。mm³ を 1000 で割って mL。
 colu = cfg["column"]
-st.sidebar.subheader("カラム（V_m を寸法から計算）")
+TARGET = "TP"
 WATERS_ID = [1.0, 2.1, 3.0]            # Waters ACQUITY BEH でよくある内径 [mm]
 WATERS_LEN = [30, 50, 75, 100, 150]    # よくある長さ [mm]
-id_default = float(colu.get("id_mm", 2.1))
-len_default = int(colu.get("length_mm", 100))
-id_mm = st.sidebar.selectbox("内径 [mm]", WATERS_ID,
-                             index=WATERS_ID.index(id_default) if id_default in WATERS_ID else 1)
-L_mm = float(st.sidebar.selectbox("長さ [mm]", WATERS_LEN,
-                                  index=WATERS_LEN.index(len_default) if len_default in WATERS_LEN else 3))
-porosity = st.sidebar.number_input("空隙率", value=float(colu.get("porosity", 0.66)), format="%.2f")
-Vm_geo = porosity * np.pi * (id_mm / 2.0) ** 2 * L_mm / 1000.0
-st.sidebar.caption(f"幾何推算 V_m = {Vm_geo:.3f} mL（{id_mm}×{int(L_mm)} mm, 空隙率{porosity}）")
-if st.sidebar.checkbox("V_m を手入力で上書き（ウラシル実測値など）"):
-    Vm = st.sidebar.number_input("V_m [mL]", value=round(Vm_geo, 3), format="%.3f")
-else:
-    Vm = Vm_geo
-st.sidebar.subheader("実験計画")
-n_center = st.sidebar.slider("CCD 中心点の数", 3, 8, 6)
-n_augment = st.sidebar.slider("D最適 追加点の数", 0, 16, 8)
-n_bridge = st.sidebar.slider("Day2 橋渡し中心点", 0, 5, 3)
-_ALPHA_OPTIONS = {
+ALPHA_OPTIONS = {
     "面心（α=1.0）— 軸点が low/high に乗る": 1.0,
     "回転可能（α≈1.682）— 予測精度が均一": (2 ** 3) ** 0.25,
 }
-_alpha_label = st.sidebar.radio("CCD 軸点の距離 α", list(_ALPHA_OPTIONS.keys()), index=0)
-alpha_ccd = _ALPHA_OPTIONS[_alpha_label]
-st.sidebar.caption(f"α = {alpha_ccd:.4f}")
-grid_n = 51
+grid_n = 51                            # デザインスペース格子の解像度（固定）
+
+
+def basic_factor_inputs():
+    """因子範囲・ピーク構成の入力（①計画タブの冒頭で呼ぶ）。グローバルに値を設定する。"""
+    global factors, INTERFERING, ALL_PEAKS, RESPONSE_COLS, REQUIRED_COLS
+    st.markdown("**因子範囲（T・φ・F の下限／上限）**")
+    sc = st.columns(3)
+    T_lo = sc[0].number_input("T 下限 [℃]", value=float(fc["T"]["low"]))
+    T_hi = sc[0].number_input("T 上限 [℃]", value=float(fc["T"]["high"]))
+    P_lo = sc[1].number_input("φ 下限", value=float(fc["phi"]["low"]), format="%.3f")
+    P_hi = sc[1].number_input("φ 上限", value=float(fc["phi"]["high"]), format="%.3f")
+    F_lo = sc[2].number_input("F 下限 [mL/min]", value=float(fc["F"]["low"]), format="%.2f")
+    F_hi = sc[2].number_input("F 上限 [mL/min]", value=float(fc["F"]["high"]), format="%.2f")
+    factors = {
+        "T":   {"low": T_lo, "center": (T_lo + T_hi) / 2, "high": T_hi},
+        "phi": {"low": P_lo, "center": (P_lo + P_hi) / 2, "high": P_hi},
+        "F":   {"low": F_lo, "center": (F_lo + F_hi) / 2, "high": F_hi},
+    }
+    n_ip = int(st.number_input("夾雑ピークの数（目的ピークの前後）", 1, 8, 1, step=1,
+                               help="目的ピーク TP に対し、邪魔なピークを何本入れるか。既定1。"))
+    INTERFERING = [f"IP{i}" for i in range(1, n_ip + 1)]
+    ALL_PEAKS = [TARGET] + INTERFERING
+    RESPONSE_COLS = [f"tR_{p}" for p in ALL_PEAKS] + [f"Wh_{p}" for p in ALL_PEAKS]
+    REQUIRED_COLS = ["T", "phi", "F", "day"] + RESPONSE_COLS
+    st.caption(f"ピーク: {TARGET}（目的）＋ {', '.join(INTERFERING)}")
+
+
+def ccd_design_inputs():
+    """CCD の設定（中心点数・軸点 α）の入力（①計画タブで呼ぶ）。"""
+    global n_center, alpha_ccd
+    c = st.columns(2)
+    n_center = c[0].slider("CCD 中心点の数", 3, 8, 6)
+    alpha_label = c[1].radio("CCD 軸点の距離 α", list(ALPHA_OPTIONS.keys()), index=0)
+    alpha_ccd = ALPHA_OPTIONS[alpha_label]
+    c[1].caption(f"α = {alpha_ccd:.4f}")
+
+
+def column_and_criteria_inputs():
+    """カラム寸法→V_m と合格条件の入力（②フィット&結果タブの冒頭で呼ぶ）。"""
+    global Vm, L_mm, criteria
+    st.markdown("**カラム（寸法から V_m を計算）**")
+    cc = st.columns(3)
+    id_default = float(colu.get("id_mm", 2.1))
+    len_default = int(colu.get("length_mm", 100))
+    id_mm = cc[0].selectbox("内径 [mm]", WATERS_ID,
+                            index=WATERS_ID.index(id_default) if id_default in WATERS_ID else 1)
+    L_mm = float(cc[1].selectbox("長さ [mm]", WATERS_LEN,
+                                 index=WATERS_LEN.index(len_default) if len_default in WATERS_LEN else 3))
+    porosity = cc[2].number_input("空隙率", value=float(colu.get("porosity", 0.66)), format="%.2f")
+    Vm_geo = porosity * np.pi * (id_mm / 2.0) ** 2 * L_mm / 1000.0
+    st.caption(f"幾何推算 V_m = {Vm_geo:.3f} mL（{id_mm}×{int(L_mm)} mm, 空隙率{porosity}）")
+    if st.checkbox("V_m を手入力で上書き（ウラシル実測値など）"):
+        Vm = st.number_input("V_m [mL]", value=round(Vm_geo, 3), format="%.3f")
+    else:
+        Vm = Vm_geo
+    st.markdown("**合格条件**")
+    ac_cols = st.columns(2)
+    criteria = {
+        "Rs_min": ac_cols[0].number_input("Rs_min ≥", value=float(ac["Rs_min"]), format="%.1f"),
+        "tR_TP_max": ac_cols[1].number_input("t_R(TP) ≤ [分]", value=float(ac["tR_TP_max"]), format="%.1f"),
+        # 最遅ピークの上限はデータ取り段階の洗浄前制約であり、デザインスペースの合否には含めない
+        "tR_last_max": None,
+    }
+
+
+def augment_inputs():
+    """D最適の点数・橋渡し中心点の入力（③D最適タブで呼ぶ）。"""
+    global n_augment, n_bridge
+    c = st.columns(2)
+    n_augment = c[0].slider("D最適 追加点の数", 0, 16, 8)
+    n_bridge = c[1].slider("Day2 橋渡し中心点", 0, 5, 3)
 
 
 def run_fit_and_designspace(df, header_prefix=""):
@@ -313,6 +331,9 @@ tab1, tab2, tab3, tab4, tab_demo = st.tabs(
 # ── ① CCD 計画 ──
 with tab1:
     st.header("① Day1 の実験計画（CCD）")
+    basic_factor_inputs()        # 因子範囲・ピーク構成（全タブ共通の基本設定）
+    ccd_design_inputs()          # CCD の中心点数・軸点 α
+    st.divider()
     st.write(f"中心複合計画（頂点8＋軸上6＋中心点）を生成します。Excel 雛形をDLし、"
              f"各条件で測った {len(ALL_PEAKS)} ピーク（{', '.join(ALL_PEAKS)}）の t_R・W_h を空欄に記入してください。")
     ccd = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0).copy()
@@ -330,6 +351,8 @@ with tab2:
     st.header("② フィット & 結果（CCD データだけで完結）")
     st.success("**CCD（①）の実測データだけで、フィット → デザインスペース → 推奨条件まで出ます。**"
                "D最適（③）は精度を上げたい場合の任意ステップで、省略できます。")
+    column_and_criteria_inputs()     # カラム(V_m)・合格条件（解析で使う設定）
+    st.divider()
     st.write("①の雛形に実測値を入れたファイルを読み込みます（xlsx/csv）。"
              "保持・幅のモデルをフィットし、当てはまり・デザインスペース・推奨条件を表示します。")
     up1 = st.file_uploader("記入済み CCD データ", type=["xlsx", "csv"], key="up1")
@@ -349,6 +372,8 @@ with tab3:
                "デザインスペース境界の予測精度をさらに上げたいときだけ実施してください。")
     st.write("Day1 の CCD に D最適で情報量の高い点を追加します。"
              "別日に実施するため、冒頭に橋渡し中心点（日間差の測定用）を入れます。")
+    augment_inputs()                 # D最適 追加点数・橋渡し中心点
+    st.divider()
     basis = st.radio(
         "D最適の目的（基準）",
         ["(A) 係数精度（モデル基準・データ不要）",
