@@ -98,9 +98,11 @@ colu = cfg["column"]
 TARGET = "TP"
 WATERS_ID = [1.0, 2.1, 3.0]            # Waters ACQUITY BEH でよくある内径 [mm]
 WATERS_LEN = [30, 50, 75, 100, 150]    # よくある長さ [mm]
-ALPHA_OPTIONS = {
-    "面心（α=1.0）— 軸点が low/high に乗る": 1.0,
-    "回転可能（α≈1.682）— 予測精度が均一": (2 ** 3) ** 0.25,
+# 実験計画タイプ → (kind, alpha)。BBD は α 不使用。
+DESIGN_OPTIONS = {
+    "Box-Behnken (BBD) — 角も軸点もなし／全点が範囲内": ("bbd", 1.0),
+    "面心 CCD (α=1.0) — 頂点＋軸点が範囲の面上": ("ccd", 1.0),
+    "回転可能 CCD (α≈1.682) — 予測精度が均一・軸点は範囲外": ("ccd", (2 ** 3) ** 0.25),
 }
 grid_n = 51                            # デザインスペース格子の解像度（固定）
 
@@ -131,13 +133,16 @@ def basic_factor_inputs():
 
 
 def ccd_design_inputs():
-    """CCD の設定（中心点数・軸点 α）の入力（①計画タブで呼ぶ）。"""
-    global n_center, alpha_ccd
+    """実験計画タイプ（BBD / 面心CCD / 回転CCD）と中心点数の入力（①計画タブで呼ぶ）。"""
+    global n_center, alpha_ccd, design_kind
     c = st.columns(2)
-    n_center = c[0].slider("CCD 中心点の数", 3, 8, 6)
-    alpha_label = c[1].radio("CCD 軸点の距離 α", list(ALPHA_OPTIONS.keys()), index=0)
-    alpha_ccd = ALPHA_OPTIONS[alpha_label]
-    c[1].caption(f"α = {alpha_ccd:.4f}")
+    n_center = c[0].slider("中心点の数", 3, 8, 6)
+    label = c[1].radio("実験計画のタイプ", list(DESIGN_OPTIONS.keys()), index=1)
+    design_kind, alpha_ccd = DESIGN_OPTIONS[label]
+    if design_kind == "bbd":
+        c[1].caption("Box-Behnken: 各因子ペアの辺中点 12 点 ＋ 中心点")
+    else:
+        c[1].caption(f"CCD: 頂点8 ＋ 軸上点6 ＋ 中心点（α = {alpha_ccd:.4f}）")
 
 
 def column_and_criteria_inputs():
@@ -334,9 +339,11 @@ with tab1:
     basic_factor_inputs()        # 因子範囲・ピーク構成（全タブ共通の基本設定）
     ccd_design_inputs()          # CCD の中心点数・軸点 α
     st.divider()
-    st.write(f"中心複合計画（頂点8＋軸上6＋中心点）を生成します。Excel 雛形をDLし、"
+    _plan_desc = ("Box-Behnken 計画（辺中点12＋中心点）" if design_kind == "bbd"
+                  else "中心複合計画（頂点8＋軸上6＋中心点）")
+    st.write(f"{_plan_desc}を生成します。Excel 雛形をDLし、"
              f"各条件で測った {len(ALL_PEAKS)} ピーク（{', '.join(ALL_PEAKS)}）の t_R・W_h を空欄に記入してください。")
-    ccd = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0).copy()
+    ccd = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0, kind=design_kind).copy()
     ccd.insert(0, "run", np.arange(1, len(ccd) + 1))
     for col in RESPONSE_COLS:
         ccd[col] = np.nan
@@ -346,8 +353,12 @@ with tab1:
                        file_name="runs_day1_template.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.plotly_chart(ds.plot_design_points_3d(ccd, factors=factors), use_container_width=True)
-    st.caption("青=頂点(factorial)、赤=軸上点(axial)、緑=中心点。灰色の箱が指定範囲(low/high)。"
-               "α=1.0 なら全点が箱の面上、α=1.682 なら頂点が箱の角・軸上点は箱の外へ伸びます。")
+    if design_kind == "bbd":
+        st.caption("水色=BBD点（各因子ペアの辺中点）、緑=中心点。灰色の箱が指定範囲(low/high)。"
+                   "角（頂点）も軸上点もなく、全点が範囲内に収まります。")
+    else:
+        st.caption("青=頂点(factorial)、赤=軸上点(axial)、緑=中心点。灰色の箱が指定範囲(low/high)。"
+                   "α=1.0 なら全点が箱の面上、α=1.682 なら頂点が箱の角・軸上点は箱の外へ伸びます。")
 
 # ── ② フィット & 結果（CCD だけで最終結果まで出る）──
 with tab2:
@@ -401,7 +412,8 @@ with tab3:
         st.caption("補足：保持モデルは係数について線形なので、(A)の追加点はフィット係数の値に依存しません"
                    "（モデルの形が決まれば最適点が決まる）。データ不要で計画できます。")
 
-    ccd_for_aug = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0)
+    ccd_for_aug = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0, kind=design_kind)
+    aug_alpha = alpha_ccd if design_kind == "ccd" else 1.0   # BBD は候補格子を範囲内に
     parts = []
     if n_bridge > 0:
         parts.append(design.bridge_center(factors, n_bridge=n_bridge, day=1))
@@ -410,11 +422,11 @@ with tab3:
             st.info("(B) は Day1 データの読み込み後に追加点を表示します。")
         elif use_rs:
             parts.append(design.augment_design(
-                factors, ccd_for_aug, n_augment, alpha=alpha_ccd, day=1, method="rs_local",
+                factors, ccd_for_aug, n_augment, alpha=aug_alpha, day=1, method="rs_local",
                 Vm=Vm, L_mm=L_mm, model_mod=model, peaks=peaks_for_aug,
                 Rs_target=criteria["Rs_min"]))
         else:
-            parts.append(design.augment_design(factors, ccd_for_aug, n_augment, alpha=alpha_ccd,
+            parts.append(design.augment_design(factors, ccd_for_aug, n_augment, alpha=aug_alpha,
                                                 day=1, method="model", Vm=Vm, L_mm=L_mm))
     if parts:
         day2 = pd.concat(parts, ignore_index=True)
@@ -468,7 +480,7 @@ with tab_demo:
     if st.session_state.get("demo_ran"):
         plan = design.build_runs_template(factors, n_center=n_center, alpha=alpha_ccd,
                                           n_bridge=n_bridge, n_augment=n_augment,
-                                          method="model", Vm=Vm, L_mm=L_mm)
+                                          method="model", Vm=Vm, L_mm=L_mm, kind=design_kind)
         # 選んだピーク数に合わせて合成パラメータを作る（TP の周りに IP を散らす）
         vd = {"A": 0.003, "B": 0.3, "C": 2.0e-5}
         true_peaks = {"TP": {"a": -0.49, "b": 1500.0, "c": -3.0, "d": 0.0,

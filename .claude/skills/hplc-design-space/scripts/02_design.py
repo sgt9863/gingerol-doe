@@ -75,9 +75,34 @@ def ccd_coded(n_center=6, alpha=1.0):
     return pd.DataFrame(rows, columns=cols)
 
 
-def ccd_design(factors, n_center=6, alpha=1.0, day=0):
-    """CCD を実値つきの DataFrame で返す（Day1 用）。"""
-    coded = ccd_coded(n_center=n_center, alpha=alpha)
+def bbd_coded(n_center=6):
+    """Box-Behnken 設計（3因子）の符号化計画を返す（type 列付き）。
+    各因子ペアの辺中点 2²×3=12 + 中心点 n。頂点(角)も軸上点(範囲外)も使わない。
+    → 全点が範囲内に収まり、角条件が物理的に無理な系（高温×高ACN など）に向く。"""
+    rows = []
+    for i, j in [(0, 1), (0, 2), (1, 2)]:        # 因子ペア（残り1因子は0）
+        for a in (-1.0, 1.0):
+            for b in (-1.0, 1.0):
+                pt = [0.0, 0.0, 0.0]
+                pt[i], pt[j] = a, b
+                rows.append(("bbd", *pt))
+    for _ in range(n_center):
+        rows.append(("center", 0.0, 0.0, 0.0))
+    cols = ["type"] + [f"c{f}" for f in FACTOR_NAMES]
+    return pd.DataFrame(rows, columns=cols)
+
+
+def design_coded(kind="ccd", n_center=6, alpha=1.0):
+    """計画タイプを選んで符号化計画を返す。kind="bbd" なら Box-Behnken、それ以外は CCD。"""
+    if kind == "bbd":
+        return bbd_coded(n_center=n_center)
+    return ccd_coded(n_center=n_center, alpha=alpha)
+
+
+def ccd_design(factors, n_center=6, alpha=1.0, day=0, kind="ccd"):
+    """実験計画を実値つきの DataFrame で返す（Day1 用）。
+    kind="ccd"（既定）で中心複合計画、kind="bbd" で Box-Behnken。"""
+    coded = design_coded(kind=kind, n_center=n_center, alpha=alpha)
     specs = _factor_specs(factors)
     df = coded.copy()
     for f in FACTOR_NAMES:
@@ -321,13 +346,15 @@ def augment_design(factors, existing_df, n_add, alpha=1.0, day=1, method="model"
 # ──────────────────────────────
 def build_runs_template(factors, n_center=6, alpha=1.0,
                         n_bridge=3, n_augment=0, method="model",
-                        Vm=0.24, L_mm=100.0):
-    """Day1 CCD（＋任意で Day2 橋渡し中心点・D最適）を1枚に結合し、応答列を空欄で付ける。"""
-    parts = [ccd_design(factors, n_center=n_center, alpha=alpha, day=0)]
+                        Vm=0.24, L_mm=100.0, kind="ccd"):
+    """Day1 計画（＋任意で Day2 橋渡し中心点・D最適）を1枚に結合し、応答列を空欄で付ける。
+    kind="ccd"（既定）/ "bbd"。D最適の候補格子は範囲内に留めるため BBD では alpha=1.0 を使う。"""
+    aug_alpha = alpha if kind == "ccd" else 1.0
+    parts = [ccd_design(factors, n_center=n_center, alpha=alpha, day=0, kind=kind)]
     if n_bridge > 0:
         parts.append(bridge_center(factors, n_bridge=n_bridge, day=1))
     if n_augment > 0:
-        parts.append(augment_design(factors, parts[0], n_augment, alpha=alpha,
+        parts.append(augment_design(factors, parts[0], n_augment, alpha=aug_alpha,
                                      day=1, method=method, Vm=Vm, L_mm=L_mm))
     df = pd.concat(parts, ignore_index=True)
     df.insert(0, "run", np.arange(1, len(df) + 1))
