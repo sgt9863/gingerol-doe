@@ -37,11 +37,8 @@ _DESIGN_COLORS = {
 }
 
 
-def _box_edges(factors):
-    """因子範囲 low/high の直方体（頂点が乗るべき箱）の12辺を1本の線トレース用座標で返す。"""
-    Tl, Th = factors["T"]["low"], factors["T"]["high"]
-    Pl, Ph = factors["phi"]["low"], factors["phi"]["high"]
-    Fl, Fh = factors["F"]["low"], factors["F"]["high"]
+def _cuboid_edges(Tl, Th, Pl, Ph, Fl, Fh):
+    """直方体 [Tl,Th]×[Pl,Ph]×[Fl,Fh] の12辺を1本の線トレース用座標 (xs,ys,zs) で返す。"""
     c = [(Tl, Pl, Fl), (Th, Pl, Fl), (Th, Ph, Fl), (Tl, Ph, Fl),
          (Tl, Pl, Fh), (Th, Pl, Fh), (Th, Ph, Fh), (Tl, Ph, Fh)]
     edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
@@ -52,6 +49,13 @@ def _box_edges(factors):
         ys += [c[a][1], c[b][1], None]
         zs += [c[a][2], c[b][2], None]
     return xs, ys, zs
+
+
+def _box_edges(factors):
+    """因子範囲 low/high の直方体（頂点が乗るべき箱）の12辺を返す。"""
+    return _cuboid_edges(factors["T"]["low"], factors["T"]["high"],
+                         factors["phi"]["low"], factors["phi"]["high"],
+                         factors["F"]["low"], factors["F"]["high"])
 
 
 def plot_design_points_3d(df, factors=None, title="実験計画（CCD）の配置"):
@@ -239,7 +243,8 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
                         model_mod=None, peaks=None, factors=None,
                         Vm=None, L_mm=None, day=0, cloud_style="volume",
                         wall_side="auto", n_contours=5, surface_count=30,
-                        rotate_frames=120, rotate_duration_ms=33):
+                        rotate_frames=120, rotate_duration_ms=33,
+                        robust_box=None):
     """
     04_optimize.evaluate_grid の結果と推奨条件 rec から
     対話的 3D 図を作成し plotly Figure を返す。
@@ -344,6 +349,21 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
             name="推奨条件（最大余裕点）",
             hovertemplate=hover_txt + "<extra>推奨条件</extra>",
         ))
+
+        # ── 変動範囲の箱（最適化基準で設定した ±δ。推奨点中心の直方体）──
+        # robust_box = {"center": (T,phi,F), "delta": {"T":..,"phi":..,"F":..}}
+        if robust_box is not None:
+            cx, cy, cz = robust_box["center"]
+            dl = robust_box["delta"]
+            dT, dP, dF = dl.get("T", 0.0), dl.get("phi", 0.0), dl.get("F", 0.0)
+            bxs, bys, bzs = _cuboid_edges(cx - dT, cx + dT, cy - dP, cy + dP,
+                                          cz - dF, cz + dF)
+            fig.add_trace(go.Scatter3d(
+                x=bxs, y=bys, z=bzs, mode="lines",
+                line=dict(color="#111111", width=4, dash="dash"),
+                name=f"変動範囲 ±({dT:g},{dP:g},{dF:g})",
+                hoverinfo="skip",
+            ))
 
     # ── レイアウト ──
     n_pass = int(mask.sum())
