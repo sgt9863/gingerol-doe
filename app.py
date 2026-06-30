@@ -285,13 +285,19 @@ def run_fit_and_designspace(df, header_prefix=""):
     rot_speed = rc2.select_slider("自動回転の速さ", options=["遅い", "標準", "速い"],
                                   value="標準", key=header_prefix + "rot")
     rot_dur = {"遅い": 140, "標準": 80, "速い": 40}[rot_speed]
+    # 変動範囲を設定する基準（t_R最速 / ACN最小）のときは推奨点に ±δ の箱を重ねる
+    robust_box = None
+    if delta is not None and rec is not None:
+        robust_box = {"center": (rec["T"], rec["phi"], rec["F"]), "delta": delta}
     fig = ds.plot_designspace_3d(grid, rec, model_mod=model, peaks=peaks_hat,
                                  factors=factors, Vm=Vm, L_mm=L_mm,
                                  cloud_style=cloud_style, wall_side=wall_side,
-                                 surface_count=surface_count, rotate_duration_ms=rot_dur)
+                                 surface_count=surface_count, rotate_duration_ms=rot_dur,
+                                 robust_box=robust_box)
     st.plotly_chart(fig, use_container_width=True)
+    _box_note = ("、破線の箱＝設定した変動範囲（この箱全域が合格になる推奨点）" if robust_box else "")
     st.caption("雲＝合格領域（Viridis: 紫=ギリギリ→黄=余裕大）、壁の線＝デザインスペース内のRs等高線5本"
-               "（太黒線が Rs=2.0 の合格境界）、黒ドット＝推奨条件。左下の「▶ 自動回転」で回転。")
+               f"（太黒線が Rs=2.0 の合格境界）、黒ドット＝推奨条件{_box_note}。左下の「▶ 自動回転」で回転。")
 
     rec_df = pd.DataFrame([{
         "T_degC": rec["T"], "phi_ACN": rec["phi"], "F_mL_min": rec["F"],
