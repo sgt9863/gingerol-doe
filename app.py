@@ -345,6 +345,9 @@ with tab1:
     st.download_button("Day1 入力用 Excel 雛形をDL", to_excel_bytes(ccd),
                        file_name="runs_day1_template.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.plotly_chart(ds.plot_design_points_3d(ccd, factors=factors), use_container_width=True)
+    st.caption("青=頂点(factorial)、赤=軸上点(axial)、緑=中心点。灰色の箱が指定範囲(low/high)。"
+               "α=1.0 なら全点が箱の面上、α=1.682 なら頂点が箱の角・軸上点は箱の外へ伸びます。")
 
 # ── ② フィット & 結果（CCD だけで最終結果まで出る）──
 with tab2:
@@ -423,8 +426,13 @@ with tab3:
         st.download_button("Day2 入力用 Excel 雛形をDL", to_excel_bytes(day2),
                            file_name="runs_day2_template.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        both = pd.concat([ccd_for_aug.assign(type=ccd_for_aug["type"]), day2], ignore_index=True)
+        st.plotly_chart(ds.plot_design_points_3d(both, factors=factors,
+                                                 title="Day1(CCD) ＋ Day2(D最適) の配置"),
+                        use_container_width=True)
+        st.caption("Day1 の CCD 点に、Day2 の D最適追加点（橙）・橋渡し中心点（紫）を重ねた全体配置。")
     else:
-        st.warning("追加点・橋渡し中心点がどちらも 0 です。サイドバーで数を増やしてください。")
+        st.warning("追加点・橋渡し中心点がどちらも 0 です。点数を増やしてください。")
 
 # ── ④ 最終解析 ──
 with tab4:
