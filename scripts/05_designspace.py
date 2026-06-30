@@ -318,12 +318,19 @@ def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
 
     # ── 推奨条件（最大余裕点）──
     if rec is not None:
-        # 推奨点でのより詳細な情報をホバーに入れる
+        # 推奨点でのより詳細な情報をホバーに入れる。
+        # 最適化基準により margin（最大余裕）か objective（t_R最速/ACN最小）のどちらかが入る。
+        if "margin" in rec:
+            obj_txt = f"余裕={rec['margin']:.3f}"
+        elif "objective" in rec:
+            obj_txt = f"目的値={rec['objective']:.3f}"
+        else:
+            obj_txt = ""
         hover_txt = (
             f"T={rec['T']:.1f}℃<br>"
             f"φ={rec['phi']:.3f}<br>"
             f"F={rec['F']:.2f} mL/min<br>"
-            f"余裕={rec['margin']:.3f}"
+            f"{obj_txt}"
         )
         fig.add_trace(go.Scatter3d(
             x=[rec["T"]], y=[rec["phi"]], z=[rec["F"]],
