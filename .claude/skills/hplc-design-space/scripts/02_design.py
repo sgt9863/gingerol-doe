@@ -16,12 +16,14 @@
   real（実値）   … 実際の T[℃] / phi[ACN分率] / F[mL/min]。
 
 alpha（軸上点の距離）:
-  既定 1.0 = 面心複合計画（CCF）。軸上点が low/high にちょうど乗るので、
+  既定 1.0 = 面心複合計画（CCF）。軸上点も頂点も low/high に乗るので、
   温度上限・ACN沸点などの「超えてはいけない範囲」を守れる（今回の制約向き）。
-  回転可能性を優先するなら alpha=(2^3)^(1/4)=1.682 だが範囲を超えるので注意。
+  回転可能性を優先するなら alpha=(2^3)^(1/4)=1.682。この場合、頂点(±1)が
+  low/high に乗り、軸上点(±alpha)はその外側へ伸びる（範囲を超えるので注意）。
 
-real への変換: real = center + coded * (half_range / alpha),  half_range=(high-low)/2
-  → axial(±alpha) は center±half_range = low/high にちょうど乗る。
+real への変換: real = center + coded * half_range,  half_range=(high-low)/2
+  → 頂点 factorial(±1) は center±half_range = low/high にちょうど乗る（標準的な規約）。
+  → 軸上点 axial(±alpha) は alpha=1 なら low/high、alpha>1 なら範囲の外側。
 """
 
 import itertools
@@ -37,11 +39,12 @@ RESPONSE_COLS = ["tR_IP1", "tR_TP", "tR_IP2", "Wh_IP1", "Wh_TP", "Wh_IP2"]
 # ──────────────────────────────
 # 符号化 ↔ 実値
 # ──────────────────────────────
-def coded_to_real(coded, low, center, high, alpha):
-    """符号化値 coded を実値に変換。 real = center + coded*(half_range/alpha)。"""
+def coded_to_real(coded, low, center, high, alpha=None):
+    """符号化値 coded を実値に変換。 real = center + coded*half_range。
+    頂点 ±1 が low/high に乗る標準規約（軸点 ±alpha は alpha>1 なら範囲外へ伸びる）。
+    alpha は受け取るが変換には使わない（呼び出し側の互換のため残す）。"""
     half_range = (high - low) / 2.0
-    step = half_range / alpha
-    return center + np.asarray(coded, dtype=float) * step
+    return center + np.asarray(coded, dtype=float) * half_range
 
 
 def _factor_specs(factors):
