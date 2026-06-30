@@ -179,29 +179,73 @@ def run_fit_and_designspace(df, header_prefix=""):
                "保持の個別係数は実験範囲が狭く多重共線のため深読みせず、予測精度で評価する。")
 
     st.subheader(f"{header_prefix}デザインスペースと推奨条件")
+
+    # ── 計算範囲（内挿 / 外挿）と最適化基準を 3D の手前で選ぶ ──
+    oc1, oc2 = st.columns(2)
+    range_mode = oc1.radio(
+        "計算範囲", ["検証範囲内（内挿）", "外挿あり（範囲外も予測）"],
+        key=header_prefix + "rangemode",
+        help="外挿は因子範囲の外まで雲・グラフを広げます（検証外の予測）。推奨条件は安全のため検証済み範囲内からのみ選びます。")
+    if range_mode.startswith("外挿"):
+        extrapolate = oc1.slider("外挿の広さ（範囲幅に対する割合）", 0.0, 0.5, 0.1, step=0.05,
+                                 key=header_prefix + "ext")
+    else:
+        extrapolate = 0.0
+
+    MODE_LABELS = {
+        "最も頑健（不合格領域から最も遠い）": "robust",
+        "変動範囲全域が合格で t_R(TP) 最速": "fastest_tR",
+        "変動範囲全域が合格で ACN 消費量が最小": "min_acn",
+    }
+    mode_label = oc2.radio("最適化の基準", list(MODE_LABELS.keys()),
+                           key=header_prefix + "optmode")
+    opt_mode = MODE_LABELS[mode_label]
+    delta = None
+    if opt_mode in ("fastest_tR", "min_acn"):
+        oc2.caption("各因子が運用中にブレうる半幅（±）を設定。その箱の全域が合格な点だけを候補にします。")
+        dc = oc2.columns(3)
+        delta = {
+            "T": float(dc[0].number_input("±T [℃]", value=1.0, min_value=0.0, step=0.5,
+                                          key=header_prefix + "dT")),
+            "phi": float(dc[1].number_input("±φ [分率]", value=0.01, min_value=0.0, step=0.005,
+                                            format="%.3f", key=header_prefix + "dphi")),
+            "F": float(dc[2].number_input("±F [mL/min]", value=0.02, min_value=0.0, step=0.01,
+                                          format="%.2f", key=header_prefix + "dF")),
+        }
+
     grid, rec = opt.optimize(model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n,
-                             extrapolate=extrapolate, target=TARGET, interfering=INTERFERING)
+                             extrapolate=extrapolate, target=TARGET, interfering=INTERFERING,
+                             mode=opt_mode, delta=delta)
     n_pass, n_total = int(grid["pass_mask"].sum()), grid["pass_mask"].size
     c1, c2 = st.columns(2)
     c1.metric("合格領域の広さ", f"{n_pass} / {n_total} 点", f"{100*n_pass/n_total:.1f}%")
     if rec is None:
-        c2.error("合格領域なし。因子範囲か合格条件を見直してください。")
+        if opt_mode == "robust":
+            c2.error("合格領域なし。因子範囲か合格条件を見直してください。")
+        else:
+            c2.error("変動範囲の箱が全域合格となる点がありません。±の幅を小さくするか合格条件を見直してください。")
         return
     s = model.separation(peaks_hat, rec["T"], rec["phi"], rec["F"], Vm, L_mm,
                          target=TARGET, interfering=INTERFERING)
     last = float(max(s[nm]["tR"] for nm in ALL_PEAKS))
+    # 基準ごとの補足（目的関数の達成値）
+    if opt_mode == "robust":
+        obj_line = f"- 余裕（正規化距離）= {rec['margin']:.3f}\n"
+    elif opt_mode == "fastest_tR":
+        obj_line = f"- 変動範囲全域が合格、t_R(TP) 最速 = {rec['objective']:.2f} 分\n"
+    else:
+        obj_line = f"- 変動範囲全域が合格、ACN 消費量最小 = {rec['objective']:.3f} mL\n"
     c2.success(
-        f"**推奨条件（最大余裕点）**\n\n"
+        f"**推奨条件（{mode_label}）**\n\n"
         f"- T = {rec['T']:.1f} ℃\n- φ = {rec['phi']:.3f}（ACN 分率）\n"
-        f"- F = {rec['F']:.2f} mL/min\n\n"
+        f"- F = {rec['F']:.2f} mL/min\n"
+        f"{obj_line}\n"
         f"→ Rs_min={float(s['Rs_min']):.2f} / t_R(TP)={float(s[TARGET]['tR']):.2f}分 / 最遅={last:.2f}分"
     )
 
     st.subheader(f"{header_prefix}3D デザインスペース")
-    cc1, cc2, cc3 = st.columns(3)
-    cloud_style = "volume" if cc1.radio(
-        "雲の表現", ["無段階のボリューム", "散布点"],
-        key=header_prefix + "cloud") == "無段階のボリューム" else "scatter"
+    cloud_style = "volume"
+    cc2, cc3 = st.columns(2)
     side_map = {"自動": "auto", "手前": "low", "奥": "high"}
     side_lr = side_map[cc2.radio("T壁・φ壁（手前/奥）", ["自動", "手前", "奥"],
                                  key=header_prefix + "wall_lr")]
@@ -225,7 +269,10 @@ def run_fit_and_designspace(df, header_prefix=""):
 
     rec_df = pd.DataFrame([{
         "T_degC": rec["T"], "phi_ACN": rec["phi"], "F_mL_min": rec["F"],
-        "margin_normalized": rec["margin"], "Rs_min": float(s["Rs_min"]),
+        "criterion": mode_label,
+        "margin_normalized": rec.get("margin", ""),
+        "objective": rec.get("objective", ""),
+        "Rs_min": float(s["Rs_min"]),
         "tR_TP_min": float(s[TARGET]["tR"]), "tR_last_min": last,
     }])
     dc1, dc2 = st.columns(2)
