@@ -296,6 +296,64 @@ def optimize(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
 
 
 # ──────────────────────────────
+# Rs の推定精度（誤差伝搬・モンテカルロ）
+# ──────────────────────────────
+def _sample_peaks(peaks, diagnostics, rng, target, interfering):
+    """フィット係数の共分散から、保持・幅の係数を1セット乱数で引いた peaks dict を作る。
+    保持と幅は別フィット（ほぼ独立）なのでそれぞれの cov から個別にサンプルする。
+    多重共線で cov が縮退していても、Rs は安定な係数結合で決まるため正しくばらつきが伝わる。"""
+    out = {}
+    for nm in [target] + list(interfering):
+        p = dict(peaks[nm])
+        d = diagnostics[nm]
+        for keys, cov in (("ret_keys", "ret_cov"), ("wid_keys", "wid_cov")):
+            klist = d.get(keys)
+            C = d.get(cov)
+            if not klist or C is None:
+                continue
+            mean = np.array([peaks[nm][k] for k in klist], dtype=float)
+            draw = rng.multivariate_normal(mean, np.atleast_2d(C))
+            for k, v in zip(klist, draw):
+                p[k] = float(v)
+        out[nm] = p
+    return out
+
+
+def rs_confidence(model_mod, peaks, diagnostics, T, phi, F, Vm, L_mm,
+                  target="TP", interfering=None, day=0,
+                  n_samples=600, ci=0.95, seed=0):
+    """指定条件 (T,φ,F) での Rs_min の推定精度を誤差伝搬（モンテカルロ）で返す。
+    フィット係数を共分散から n_samples 回サンプルし、各回 Rs_min を再計算してばらつきを見る。
+    戻り値 dict: {'Rs_min':点推定, 'sd':標準偏差, 'lo','hi':信頼区間, 'samples':配列,
+                  'Rs_each_sd':{IP名:sd}}。
+    """
+    if interfering is None:
+        interfering = [k for k in peaks.keys() if k != target]
+    rng = np.random.default_rng(seed)
+    base = model_mod.separation(peaks, T, phi, F, Vm, L_mm, day=day,
+                                target=target, interfering=interfering)
+    samples = np.empty(n_samples)
+    each = {ip: np.empty(n_samples) for ip in interfering}
+    for i in range(n_samples):
+        sp = _sample_peaks(peaks, diagnostics, rng, target, interfering)
+        s = model_mod.separation(sp, T, phi, F, Vm, L_mm, day=day,
+                                 target=target, interfering=interfering)
+        samples[i] = float(s["Rs_min"])
+        for ip in interfering:
+            each[ip][i] = float(s["Rs_each"][ip])
+    a = (1.0 - ci) / 2.0
+    lo, hi = np.quantile(samples, [a, 1.0 - a])
+    return {
+        "Rs_min": float(base["Rs_min"]),
+        "sd": float(np.std(samples, ddof=1)),
+        "lo": float(lo), "hi": float(hi),
+        "ci": ci,
+        "samples": samples,
+        "Rs_each_sd": {ip: float(np.std(each[ip], ddof=1)) for ip in interfering},
+    }
+
+
+# ──────────────────────────────
 # 動作確認（合成パラメータでデザインスペースが出るか）
 # ──────────────────────────────
 def _load_module(path, name):

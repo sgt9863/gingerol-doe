@@ -149,12 +149,22 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
         N_hat = L_mm / wid_res.fittedvalues                        # H → N
         Wh_hat = np.sqrt(EIGHT_LN2) * tR_meas / np.sqrt(N_hat)
 
+        # 係数の共分散（誤差伝搬で Rs の信頼区間を出すのに使う）。
+        # OLS の cov_params = σ²(XᵀX)⁻¹。列の並びは下のキー順と一致する。
+        ret_keys = ["a", "b", "c"] + (["d"] if include_d else []) \
+            + (["e"] if include_e else []) + (["delta"] if include_day else [])
+        wid_keys = ["A", "B", "C"] + (["D"] if inc_phi else []) + (["E"] if inc_T else [])
+
         diagnostics[name] = {
             "R2_retention": ret_res.rsquared,
             "R2_width": wid_res.rsquared,
             "RMSE_tR_min": _rmse(tR_hat, tR_meas),
             "RMSE_Wh_min": _rmse(Wh_hat, Wh_meas),
             "n": len(sub),
+            "ret_keys": ret_keys,
+            "ret_cov": np.asarray(ret_res.cov_params()),
+            "wid_keys": wid_keys,
+            "wid_cov": np.asarray(wid_res.cov_params()),
         }
     return peaks, diagnostics
 
