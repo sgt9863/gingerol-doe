@@ -239,7 +239,7 @@ def _validated_box_trace(factors):
     )
 
 
-def plot_designspace_3d(grid, rec, title="Design Space — 10-gingerol HPLC",
+def plot_designspace_3d(grid, rec, title="デザインスペース",
                         model_mod=None, peaks=None, factors=None,
                         Vm=None, L_mm=None, day=0, cloud_style="volume",
                         wall_side="auto", n_contours=5, surface_count=30,
