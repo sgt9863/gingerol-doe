@@ -57,7 +57,8 @@ def load_modules(_sig):
     fit = _load(os.path.join(SCRIPTS, "03_fit.py"), "fit03")
     opt = _load(os.path.join(SCRIPTS, "04_optimize.py"), "opt04")
     ds = _load(os.path.join(SCRIPTS, "05_designspace.py"), "ds05")
-    return model, design, fit, opt, ds
+    quad = _load(os.path.join(SCRIPTS, "06_quadratic.py"), "quad06")
+    return model, design, fit, opt, ds, quad
 
 
 def load_config():
@@ -93,18 +94,15 @@ def read_runs(uploaded, required_cols):
 st.set_page_config(page_title="HPLC デザインスペース最適化", layout="wide")
 st.title("HPLC デザインスペース最適化")
 
-model, design, fit, opt, ds = load_modules(_scripts_signature())
+model, design, fit, opt, ds, quad = load_modules(_scripts_signature())
 cfg, cfg_name = load_config()
 if cfg is None:
     st.error("config.yaml / config.example.yaml が見つかりません。")
     st.stop()
 
-# ── 設定はサイドバーを廃止し、各設定を「最初に使うタブ」に配置する ──
-# 設定値は Streamlit が毎回すべてのタブを評価する性質を利用して受け渡す：
-#   ①計画タブ … 因子範囲(factors)・ピーク構成(ALL_PEAKS)・CCD設定(n_center, α)
-#   ②フィット&結果タブ … カラム(V_m)・合格条件(criteria)
-#   ③D最適タブ … 追加点数(n_augment)・橋渡し中心点(n_bridge)
-# 先のタブで定義した値を後のタブ（④・デモ含む）が参照する。
+# ── 設定はページ上部の「⚙ 共通設定」expander に集約する ──
+# タブより前に render_settings() を呼び、全設定をグローバルに確定してから
+# 各タブ（①計画・②解析・③D最適・デモ）がそれを参照する。
 fc = cfg["factors"]
 ac = cfg["acceptance_criteria"]
 colu = cfg["column"]
@@ -187,16 +185,60 @@ def column_and_criteria_inputs():
 
 
 def augment_inputs():
-    """D最適の点数・橋渡し中心点の入力（③D最適タブで呼ぶ）。"""
+    """D最適の点数・橋渡し中心点の入力。"""
     global n_augment, n_bridge
     c = st.columns(2)
     n_augment = c[0].slider("D最適 追加点の数", 0, 16, 8)
     n_bridge = c[1].slider("Day2 橋渡し中心点", 0, 5, 3)
 
 
+# 解析モデルの選択肢 → (予測モジュール, フィットモジュール, タグ)
+MODEL_OPTIONS = {
+    "メカニズム（推奨・少数データに強い）": ("mech",),
+    "二次回帰（フル2次の応答曲面）": ("quad",),
+}
+
+
+def model_inputs():
+    """解析モデル（メカニズム / 二次回帰）の選択。active_model / active_fit を確定。"""
+    global active_model, active_fit, model_type
+    label = st.radio("解析モデル", list(MODEL_OPTIONS.keys()), index=0, horizontal=True,
+                     help="メカニズム=クロマトの物理式（少数データ・外挿に強い）。"
+                          "二次回帰=(T,φ,F)のフル2次（点数が十分なら有効、少数だと過学習）。")
+    model_type = MODEL_OPTIONS[label][0]
+    if model_type == "quad":
+        active_model, active_fit = quad, quad
+    else:
+        active_model, active_fit = model, fit
+
+
+def render_settings():
+    """全設定をページ上部の expander にまとめて描画（タブより前に呼ぶ）。"""
+    with st.expander("⚙ 共通設定（因子範囲・ピーク・モデル・カラム・合格条件・計画）", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            basic_factor_inputs()
+            st.markdown("**解析モデル**")
+            model_inputs()
+        with c2:
+            ccd_design_inputs()
+            augment_inputs()
+        st.divider()
+        column_and_criteria_inputs()
+
+
 def run_fit_and_designspace(df, header_prefix=""):
-    """共通処理: フィット → 診断表示 → 最適化 → 推奨条件 → 3D → DL。"""
-    peaks_hat, diag = fit.fit_all(df, Vm, L_mm, peak_names=ALL_PEAKS)
+    """共通処理: フィット → 診断表示 → 最適化 → 推奨条件 → 3D → DL。
+    解析モデル（メカニズム / 二次回帰）は共通設定の選択に従う。"""
+    peaks_hat, diag = active_fit.fit_all(df, Vm, L_mm, peak_names=ALL_PEAKS)
+
+    _mdl_name = "二次回帰" if model_type == "quad" else "メカニズム"
+    st.caption(f"解析モデル: **{_mdl_name}**")
+    if model_type == "quad":
+        min_n = min(diag[nm].get("n", 0) for nm in ALL_PEAKS)
+        if min_n < 15:
+            st.warning(f"⚠ 二次回帰は1応答あたり10パラメータ。最小点数 n={min_n} では過学習しやすく"
+                       "外挿が不安定です（LOO検証で確認済み）。少数データではメカニズムを推奨します。")
 
     st.subheader(f"{header_prefix}モデルフィット")
     rows = []
@@ -252,7 +294,7 @@ def run_fit_and_designspace(df, header_prefix=""):
                                           format="%.2f", key=header_prefix + "dF")),
         }
 
-    grid, rec = opt.optimize(model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n,
+    grid, rec = opt.optimize(active_model, peaks_hat, factors, Vm, L_mm, criteria, n=grid_n,
                              extrapolate=extrapolate, target=TARGET, interfering=INTERFERING,
                              mode=opt_mode, delta=delta, restrict_range=restrict_range)
     n_pass, n_total = int(grid["pass_mask"].sum()), grid["pass_mask"].size
@@ -264,11 +306,11 @@ def run_fit_and_designspace(df, header_prefix=""):
         else:
             c2.error("変動範囲の箱が全域合格となる点がありません。±の幅を小さくするか合格条件を見直してください。")
         return
-    s = model.separation(peaks_hat, rec["T"], rec["phi"], rec["F"], Vm, L_mm,
-                         target=TARGET, interfering=INTERFERING)
+    s = active_model.separation(peaks_hat, rec["T"], rec["phi"], rec["F"], Vm, L_mm,
+                                target=TARGET, interfering=INTERFERING)
     last = float(max(s[nm]["tR"] for nm in ALL_PEAKS))
     # 推奨点での Rs の推定精度（フィット係数の共分散から誤差伝搬・モンテカルロ）
-    rsci = opt.rs_confidence(model, peaks_hat, diag, rec["T"], rec["phi"], rec["F"],
+    rsci = opt.rs_confidence(active_model, peaks_hat, diag, rec["T"], rec["phi"], rec["F"],
                              Vm, L_mm, target=TARGET, interfering=INTERFERING, n_samples=600)
     # 基準ごとの補足（目的関数の達成値）
     if opt_mode == "robust":
@@ -310,7 +352,7 @@ def run_fit_and_designspace(df, header_prefix=""):
     robust_box = None
     if delta is not None and rec is not None:
         robust_box = {"center": (rec["T"], rec["phi"], rec["F"]), "delta": delta}
-    fig = ds.plot_designspace_3d(grid, rec, model_mod=model, peaks=peaks_hat,
+    fig = ds.plot_designspace_3d(grid, rec, model_mod=active_model, peaks=peaks_hat,
                                  factors=factors, Vm=Vm, L_mm=L_mm,
                                  cloud_style=cloud_style, wall_side=wall_side,
                                  surface_count=surface_count, rotate_duration_ms=rot_dur,
@@ -356,66 +398,59 @@ def run_fit_and_designspace(df, header_prefix=""):
 
 
 # ──────────────────────────────
-# タブ構成
+# 共通設定（タブより前に確定）＋ タブ構成
 # ──────────────────────────────
-tab1, tab2, tab3, tab4, tab_demo = st.tabs(
-    ["① 計画(CCD)", "② フィット & 結果", "③ D最適 augment（任意）", "④ 最終解析", "デモ"])
+render_settings()
 
-# ── ① CCD 計画 ──
+tab1, tab2, tab3, tab_demo = st.tabs(
+    ["① 計画", "② 解析", "③ D最適（任意）", "デモ"])
+
+# ── ① 計画 ──
 with tab1:
-    st.header("① Day1 の実験計画（CCD）")
-    basic_factor_inputs()        # 因子範囲・ピーク構成（全タブ共通の基本設定）
-    ccd_design_inputs()          # CCD の中心点数・軸点 α
-    st.divider()
     _plan_desc = ("Box-Behnken 計画（辺中点12＋中心点）" if design_kind == "bbd"
                   else "中心複合計画（頂点8＋軸上6＋中心点）")
-    st.write(f"{_plan_desc}を生成します。Excel 雛形をDLし、"
-             f"各条件で測った {len(ALL_PEAKS)} ピーク（{', '.join(ALL_PEAKS)}）の t_R・W_h を空欄に記入してください。")
+    st.caption(f"{_plan_desc}。雛形をDLし、{len(ALL_PEAKS)} ピーク（{', '.join(ALL_PEAKS)}）の "
+               "t_R・W_h を記入 → ② で読み込みます。")
     ccd = design.ccd_design(factors, n_center=n_center, alpha=alpha_ccd, day=0, kind=design_kind).copy()
     ccd.insert(0, "run", np.arange(1, len(ccd) + 1))
     for col in RESPONSE_COLS:
         ccd[col] = np.nan
     st.dataframe(ccd[["run", "day", "type", "T", "phi", "F"]], use_container_width=True)
-    st.caption(f"Day1 = {len(ccd)} 本（中心点 {n_center}）。1注入で全ピーク測れます。")
-    st.download_button("Day1 入力用 Excel 雛形をDL", to_excel_bytes(ccd),
+    st.download_button(f"Day1 入力用 Excel 雛形をDL（{len(ccd)}本）", to_excel_bytes(ccd),
                        file_name="runs_day1_template.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.plotly_chart(ds.plot_design_points_3d(ccd, factors=factors), use_container_width=True)
     if design_kind == "bbd":
-        st.caption("水色=BBD点（各因子ペアの辺中点）、緑=中心点。灰色の箱が指定範囲(low/high)。"
-                   "角（頂点）も軸上点もなく、全点が範囲内に収まります。")
+        st.caption("水色=BBD点（辺中点）、緑=中心点、灰箱=指定範囲。全点が範囲内。")
     else:
-        st.caption("青=頂点(factorial)、赤=軸上点(axial)、緑=中心点。灰色の箱が指定範囲(low/high)。"
-                   "α=1.0 なら全点が箱の面上、α=1.682 なら頂点が箱の角・軸上点は箱の外へ伸びます。")
+        st.caption("青=頂点、赤=軸上点、緑=中心点、灰箱=指定範囲。"
+                   "α=1.682 なら頂点が箱の角・軸上点は箱の外。")
 
-# ── ② フィット & 結果（CCD だけで最終結果まで出る）──
+# ── ② 解析（CCD だけでも、Day1+Day2 でも。ファイル複数可）──
 with tab2:
-    st.header("② フィット & 結果（CCD データだけで完結）")
-    st.success("**CCD（①）の実測データだけで、フィット → デザインスペース → 推奨条件まで出ます。**"
-               "D最適（③）は精度を上げたい場合の任意ステップで、省略できます。")
-    column_and_criteria_inputs()     # カラム(V_m)・合格条件（解析で使う設定）
-    st.divider()
-    st.write("①の雛形に実測値を入れたファイルを読み込みます（xlsx/csv）。"
-             "保持・幅のモデルをフィットし、当てはまり・デザインスペース・推奨条件を表示します。")
-    up1 = st.file_uploader("記入済み CCD データ", type=["xlsx", "csv"], key="up1")
-    if up1 is not None:
-        df1, missing = read_runs(up1, REQUIRED_COLS)
-        if missing:
-            st.error(f"必要な列が足りません: {missing}")
-        else:
-            st.dataframe(df1.head(12), use_container_width=True)
-            run_fit_and_designspace(df1, header_prefix="CCD ")
-            st.info("これで最終結果です。さらに境界の精度を上げたい場合のみ ③ D最適 → ④ に進んでください（任意）。")
+    st.caption("記入済みデータ（xlsx/csv、複数可）を読み込み → フィット → デザインスペース → 推奨条件。"
+               "**CCD だけで完結**します（③ D最適は任意）。")
+    ups = st.file_uploader("記入済みデータ（1つでも複数でも可）", type=["xlsx", "csv"],
+                           accept_multiple_files=True, key="upall")
+    if ups:
+        dfs, bad = [], []
+        for u in ups:
+            d, miss = read_runs(u, REQUIRED_COLS)
+            (dfs.append(d) if d is not None else bad.append((u.name, miss)))
+        for name, miss in bad:
+            st.error(f"{name}: 必要列が不足 {miss}")
+        if dfs:
+            df_all = pd.concat(dfs, ignore_index=True)
+            counts = df_all["day"].value_counts().sort_index()
+            st.caption(f"全 {len(df_all)} 行（day 別: "
+                       + ", ".join(f"day{int(k)}={v}" for k, v in counts.items()) + "）")
+            st.dataframe(df_all.head(15), use_container_width=True)
+            run_fit_and_designspace(df_all, header_prefix="")
 
 # ── ③ D最適 augment（任意）──
 with tab3:
-    st.header("③ D最適 augment（Day2 の追加実験・任意）")
-    st.caption("このステップは**任意**です。②の CCD だけで最終結果は得られます。"
-               "デザインスペース境界の予測精度をさらに上げたいときだけ実施してください。")
-    st.write("Day1 の CCD に D最適で情報量の高い点を追加します。"
-             "別日に実施するため、冒頭に橋渡し中心点（日間差の測定用）を入れます。")
-    augment_inputs()                 # D最適 追加点数・橋渡し中心点
-    st.divider()
+    st.caption("**任意**。② の結果に、境界の予測精度を上げたいときだけ Day2 の追加点を生成します。"
+               "別日実施のため冒頭に橋渡し中心点（日間差測定用）を入れます。")
     basis = st.radio(
         "D最適の目的（基準）",
         ["(A) 係数精度（モデル基準・データ不要）",
@@ -474,33 +509,9 @@ with tab3:
     else:
         st.warning("追加点・橋渡し中心点がどちらも 0 です。点数を増やしてください。")
 
-# ── ④ 最終解析 ──
-with tab4:
-    st.header("④ 最終解析（Day1 + Day2）")
-    st.write("Day1・Day2 を結合した全データを読み込み、最終フィット → デザインスペース → 推奨条件まで出します。"
-             "1ファイルにまとめても、2ファイル別々でも構いません。")
-    ups = st.file_uploader("記入済み全データ（複数可）", type=["xlsx", "csv"],
-                           accept_multiple_files=True, key="upall")
-    if ups:
-        dfs, bad = [], []
-        for u in ups:
-            d, miss = read_runs(u, REQUIRED_COLS)
-            (dfs.append(d) if d is not None else bad.append((u.name, miss)))
-        if bad:
-            for name, miss in bad:
-                st.error(f"{name}: 必要列が不足 {miss}")
-        if dfs:
-            df_all = pd.concat(dfs, ignore_index=True)
-            st.dataframe(df_all.head(15), use_container_width=True)
-            counts = df_all["day"].value_counts().sort_index()
-            st.caption(f"全 {len(df_all)} 行（day 別: "
-                       + ", ".join(f"day{int(k)}={v}" for k, v in counts.items()) + "）")
-            run_fit_and_designspace(df_all, header_prefix="最終 ")
-
 # ── デモ ──
 with tab_demo:
-    st.header("デモ（合成データ）")
-    st.write("CCD＋D最適の計画に、既知パラメータ（交互作用・日間差入り）で合成した t_R・W_h を当てた一気通貫デモ。")
+    st.caption("既知パラメータで合成した t_R・W_h を使い、①〜②の流れを合成データで体験。")
     # ボタンは押した瞬間だけ True なので、状態を session_state に保持する。
     # こうしないと雲の表現などのウィジェットを変えるたびに結果が消えてしまう。
     if st.button("デモを実行"):

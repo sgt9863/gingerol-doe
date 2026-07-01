@@ -171,6 +171,30 @@ def separation(peaks, T, phi, F, Vm, L_mm, day=0, target="TP", interfering=None)
 
 
 # ──────────────────────────────
+# Rs 信頼区間用の係数サンプリング（04_optimize.rs_confidence から呼ばれる）
+# ──────────────────────────────
+def sample_peaks(peaks, diagnostics, rng, target, interfering):
+    """フィット係数の共分散から、保持・幅の係数を1セット乱数で引いた peaks dict を作る。
+    保持と幅は別フィット（ほぼ独立）なのでそれぞれの cov から個別にサンプルする。
+    多重共線で cov が縮退していても、Rs は安定な係数結合で決まるため正しくばらつきが伝わる。"""
+    out = {}
+    for nm in [target] + list(interfering):
+        p = dict(peaks[nm])
+        d = diagnostics[nm]
+        for keys, cov in (("ret_keys", "ret_cov"), ("wid_keys", "wid_cov")):
+            klist = d.get(keys)
+            C = d.get(cov)
+            if not klist or C is None:
+                continue
+            mean = np.array([peaks[nm][k] for k in klist], dtype=float)
+            draw = rng.multivariate_normal(mean, np.atleast_2d(C))
+            for k, v in zip(klist, draw):
+                p[k] = float(v)
+        out[nm] = p
+    return out
+
+
+# ──────────────────────────────
 # 例示用パラメータ（実フィット前の動作確認・デモ用のダミー）
 # ──────────────────────────────
 def example_peaks():

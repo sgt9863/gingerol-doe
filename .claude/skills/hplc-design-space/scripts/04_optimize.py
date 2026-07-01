@@ -298,27 +298,6 @@ def optimize(model_mod, peaks, factors, Vm, L_mm, criteria, n=21, day=0,
 # ──────────────────────────────
 # Rs の推定精度（誤差伝搬・モンテカルロ）
 # ──────────────────────────────
-def _sample_peaks(peaks, diagnostics, rng, target, interfering):
-    """フィット係数の共分散から、保持・幅の係数を1セット乱数で引いた peaks dict を作る。
-    保持と幅は別フィット（ほぼ独立）なのでそれぞれの cov から個別にサンプルする。
-    多重共線で cov が縮退していても、Rs は安定な係数結合で決まるため正しくばらつきが伝わる。"""
-    out = {}
-    for nm in [target] + list(interfering):
-        p = dict(peaks[nm])
-        d = diagnostics[nm]
-        for keys, cov in (("ret_keys", "ret_cov"), ("wid_keys", "wid_cov")):
-            klist = d.get(keys)
-            C = d.get(cov)
-            if not klist or C is None:
-                continue
-            mean = np.array([peaks[nm][k] for k in klist], dtype=float)
-            draw = rng.multivariate_normal(mean, np.atleast_2d(C))
-            for k, v in zip(klist, draw):
-                p[k] = float(v)
-        out[nm] = p
-    return out
-
-
 def rs_confidence(model_mod, peaks, diagnostics, T, phi, F, Vm, L_mm,
                   target="TP", interfering=None, day=0,
                   n_samples=600, ci=0.95, seed=0):
@@ -335,7 +314,7 @@ def rs_confidence(model_mod, peaks, diagnostics, T, phi, F, Vm, L_mm,
     samples = np.empty(n_samples)
     each = {ip: np.empty(n_samples) for ip in interfering}
     for i in range(n_samples):
-        sp = _sample_peaks(peaks, diagnostics, rng, target, interfering)
+        sp = model_mod.sample_peaks(peaks, diagnostics, rng, target, interfering)
         s = model_mod.separation(sp, T, phi, F, Vm, L_mm, day=day,
                                  target=target, interfering=interfering)
         samples[i] = float(s["Rs_min"])
