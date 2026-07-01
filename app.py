@@ -511,24 +511,25 @@ with tab3:
 
 # ── デモ ──
 with tab_demo:
-    st.caption("既知パラメータで合成した t_R・W_h を使い、①〜②の流れを合成データで体験。")
+    st.caption("実測データ（Day1 CCD 20本・TP+IP1+IP2）で ② 解析の流れをそのまま体験。"
+               "ピーク構成・因子範囲・V_m はこのデータに合わせて自動設定します。")
     # ボタンは押した瞬間だけ True なので、状態を session_state に保持する。
-    # こうしないと雲の表現などのウィジェットを変えるたびに結果が消えてしまう。
     if st.button("デモを実行"):
         st.session_state["demo_ran"] = True
     if st.session_state.get("demo_ran"):
-        plan = design.build_runs_template(factors, n_center=n_center, alpha=alpha_ccd,
-                                          n_bridge=n_bridge, n_augment=n_augment,
-                                          method="model", Vm=Vm, L_mm=L_mm, kind=design_kind)
-        # 選んだピーク数に合わせて合成パラメータを作る（TP の周りに IP を散らす）
-        vd = {"A": 0.003, "B": 0.3, "C": 2.0e-5}
-        true_peaks = {"TP": {"a": -0.49, "b": 1500.0, "c": -3.0, "d": 0.0,
-                             "e": 80.0, "delta": 0.03, **vd}}
-        offs = np.linspace(-0.9, 0.6, len(INTERFERING)) if len(INTERFERING) > 1 else [-0.9]
-        for ip, off in zip(INTERFERING, offs):
-            true_peaks[ip] = {"a": -0.49 + float(off), "b": 1500.0, "c": -3.0, "d": 0.0,
-                              "e": 80.0, "delta": 0.03, **vd}
-        df_demo = fit.simulate_measurements(model, true_peaks, plan, Vm, L_mm, seed=1,
-                                            peak_names=ALL_PEAKS)
-        st.dataframe(df_demo.head(12), use_container_width=True)
+        df_demo = pd.read_csv(os.path.join(HERE, "data", "demo_runs.csv"))
+        # デモは実測データに合わせてピーク構成・因子範囲・カラムを固定（共通設定より優先）
+        TARGET = "TP"
+        INTERFERING = ["IP1", "IP2"]
+        ALL_PEAKS = [TARGET] + INTERFERING
+        RESPONSE_COLS = [f"tR_{p}" for p in ALL_PEAKS] + [f"Wh_{p}" for p in ALL_PEAKS]
+        REQUIRED_COLS = ["T", "phi", "F", "day"] + RESPONSE_COLS
+        factors = {
+            "T":   {"low": 45.0, "center": 50.0, "high": 55.0},
+            "phi": {"low": 0.42, "center": 0.45, "high": 0.48},
+            "F":   {"low": 0.55, "center": 0.60, "high": 0.65},
+        }
+        L_mm = 100.0
+        Vm = 0.66 * np.pi * (2.1 / 2.0) ** 2 * L_mm / 1000.0   # 2.1×100mm, 空隙率0.66
+        st.dataframe(df_demo, use_container_width=True)
         run_fit_and_designspace(df_demo, header_prefix="デモ ")
