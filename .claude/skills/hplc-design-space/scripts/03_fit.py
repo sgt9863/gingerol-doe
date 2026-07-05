@@ -112,6 +112,52 @@ def fit_width(df, peak, Vm, L_mm, include_phi=True, include_T=True, include_phi2
 
 
 # ──────────────────────────────
+# lack-of-fit 検定（純誤差 vs 当てはまり不足）
+# ──────────────────────────────
+def lack_of_fit(cond_df, res):
+    """
+    同一条件の繰り返し（レプリケート）から純誤差を測り、モデルの「当てはまり不足
+    (lack of fit)」を F 検定する。cond_df は fit に使った行（列 T,phi,F）、res は
+    その OLS 結果（res.model.endog=応答, res.resid=残差）。
+
+    分散分解:  SS残差(SSE) = 純誤差(SSPE) + 当てはまり不足(SSLOF)
+      SSPE = Σ_group Σ_i (y_i − ȳ_group)²   （同一条件グループ内の変動）, df_PE = Σ(n_g−1)
+      SSLOF = SSE − SSPE,  df_LOF = df_E − df_PE
+      F = (SSLOF/df_LOF) / (SSPE/df_PE),  p = P(F > 観測値)
+
+    解釈: p が小さい(<0.05)ほど「モデルでは説明しきれない系統的なズレがある」＝要注意。
+          p が大きければモデルは棄却されない（当てはまり不足の証拠なし）。
+    レプリケートが無い / 自由度が足りなければ検定不能 → None。
+    """
+    import collections
+    from scipy import stats as _stats
+    y = np.asarray(res.model.endog, dtype=float)
+    sse = float(np.sum(np.asarray(res.resid, dtype=float) ** 2))
+    df_e = float(res.df_resid)
+    keys = list(zip(np.round(cond_df["T"].to_numpy(float), 6),
+                    np.round(cond_df["phi"].to_numpy(float), 6),
+                    np.round(cond_df["F"].to_numpy(float), 6)))
+    groups = collections.defaultdict(list)
+    for i, k in enumerate(keys):
+        groups[k].append(i)
+    ss_pe, df_pe = 0.0, 0.0
+    for idx in groups.values():
+        if len(idx) > 1:
+            yy = y[idx]
+            ss_pe += float(np.sum((yy - yy.mean()) ** 2))
+            df_pe += len(idx) - 1
+    df_lof = df_e - df_pe
+    if df_pe < 1 or df_lof < 1:
+        return None
+    ss_lof = max(sse - ss_pe, 0.0)
+    ms_pe = ss_pe / df_pe
+    ms_lof = ss_lof / df_lof
+    F = ms_lof / ms_pe if ms_pe > 0 else float("inf")
+    p = float(_stats.f.sf(F, df_lof, df_pe))
+    return {"F": float(F), "p": p, "df_lof": int(df_lof), "df_pe": int(df_pe)}
+
+
+# ──────────────────────────────
 # 3ピークまとめてフィット
 # ──────────────────────────────
 def _rmse(a, b):
@@ -171,6 +217,8 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
             "ret_cov": np.asarray(ret_res.cov_params()),
             "wid_keys": wid_keys,
             "wid_cov": np.asarray(wid_res.cov_params()),
+            "LOF_retention": lack_of_fit(sub, ret_res),   # 保持モデルの当てはまり不足
+            "LOF_width": lack_of_fit(sub, wid_res),        # 幅モデルの当てはまり不足
         }
     return peaks, diagnostics
 
