@@ -48,6 +48,36 @@ def _rmse(a, b):
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
+def lack_of_fit(cond_df, res):
+    """同一条件の繰り返し（純誤差）から当てはまり不足を F 検定（03_fit と同定義）。
+    レプリケートが無い/自由度不足なら None。p<0.05 で「モデルで説明しきれないズレあり」。"""
+    import collections
+    from scipy import stats as _stats
+    y = np.asarray(res.model.endog, dtype=float)
+    sse = float(np.sum(np.asarray(res.resid, dtype=float) ** 2))
+    df_e = float(res.df_resid)
+    keys = list(zip(np.round(cond_df["T"].to_numpy(float), 6),
+                    np.round(cond_df["phi"].to_numpy(float), 6),
+                    np.round(cond_df["F"].to_numpy(float), 6)))
+    groups = collections.defaultdict(list)
+    for i, k in enumerate(keys):
+        groups[k].append(i)
+    ss_pe, df_pe = 0.0, 0.0
+    for idx in groups.values():
+        if len(idx) > 1:
+            yy = y[idx]
+            ss_pe += float(np.sum((yy - yy.mean()) ** 2))
+            df_pe += len(idx) - 1
+    df_lof = df_e - df_pe
+    if df_pe < 1 or df_lof < 1:
+        return None
+    ss_lof = max(sse - ss_pe, 0.0)
+    ms_pe, ms_lof = ss_pe / df_pe, ss_lof / df_lof
+    F = ms_lof / ms_pe if ms_pe > 0 else float("inf")
+    return {"F": float(F), "p": float(_stats.f.sf(F, df_lof, df_pe)),
+            "df_lof": int(df_lof), "df_pe": int(df_pe)}
+
+
 def fit_all(df, Vm, L_mm, peak_names=None, **_ignore):
     """
     各ピークの t_R・W_h を (T,φ,F) のフル2次で OLS フィット。
@@ -74,6 +104,8 @@ def fit_all(df, Vm, L_mm, peak_names=None, **_ignore):
             "n": len(sub),
             "tR_cov": np.asarray(rt.cov_params()),
             "Wh_cov": np.asarray(rw.cov_params()),
+            "LOF_retention": lack_of_fit(sub, rt),
+            "LOF_width": lack_of_fit(sub, rw),
         }
     return peaks, diagnostics
 

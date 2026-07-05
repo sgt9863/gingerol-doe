@@ -241,9 +241,17 @@ def run_fit_and_designspace(df, header_prefix=""):
                        "外挿が不安定です（LOO検証で確認済み）。少数データではメカニズムを推奨します。")
 
     st.subheader(f"{header_prefix}モデルフィット")
+
+    def _lof_p(lof):
+        return "—" if not lof else round(lof["p"], 3)
+
     rows = []
+    lof_flag = False
     for nm in ALL_PEAKS:
         d = diag[nm]
+        lr, lw = d.get("LOF_retention"), d.get("LOF_width")
+        if (lr and lr["p"] < 0.05) or (lw and lw["p"] < 0.05):
+            lof_flag = True
         rows.append({
             "ピーク": nm + ("（目的）" if nm == TARGET else ""),
             "n": d.get("n", ""),
@@ -251,10 +259,17 @@ def run_fit_and_designspace(df, header_prefix=""):
             "R²(幅)": round(d["R2_width"], 4),
             "RMSE(t_R)[秒]": round(d["RMSE_tR_min"] * 60, 2),
             "RMSE(W_h)[秒]": round(d["RMSE_Wh_min"] * 60, 2),
+            "LOF p(保持)": _lof_p(lr),
+            "LOF p(幅)": _lof_p(lw),
         })
     st.table(pd.DataFrame(rows))
     st.caption("R²=当てはまり、RMSE=予測の平均的なズレ（小さいほど良い）。n=使った点数（欠損は除外）。"
-               "保持の個別係数は実験範囲が狭く多重共線のため深読みせず、予測精度で評価する。")
+               "**LOF p=lack-of-fit 検定の p 値**（中心点の反復＝純誤差と比較）。"
+               "p が大きい(>0.05)ほど当てはまり不足の証拠なし＝モデル妥当。「—」は反復点が無く検定不能。")
+    if lof_flag:
+        st.warning("⚠ 一部で LOF p<0.05（当てはまり不足の兆候）。ただし中心点の純誤差が極めて小さいと"
+                   "検定が過敏になり、実用上は無視できる系統ズレでも有意になり得ます。"
+                   "RMSE の実寸（秒）が許容範囲かも併せて判断してください。")
 
     st.subheader(f"{header_prefix}デザインスペースと推奨条件")
 
