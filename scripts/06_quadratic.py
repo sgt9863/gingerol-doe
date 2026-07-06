@@ -21,6 +21,7 @@ import statsmodels.api as sm
 
 EIGHT_LN2 = 8.0 * np.log(2.0)
 WB_OVER_WH = 4.0 / np.sqrt(EIGHT_LN2)   # W_b = 4·t_R/√N, W_h = √(8ln2)·t_R/√N → W_b = 1.699·W_h
+QTERMS = ["const", "T", "phi", "F", "T^2", "phi^2", "F^2", "T*phi", "T*F", "phi*F"]  # 2次項名
 
 
 # ──────────────────────────────
@@ -128,6 +129,8 @@ def fit_all(df, Vm, L_mm, peak_names=None, **_ignore):
             "adjR2_width": adj_r2(rw),
             "Q2_retention": q2_loo(rt),
             "Q2_width": q2_loo(rw),
+            "ret_pvalues": dict(zip(QTERMS, np.asarray(rt.pvalues, dtype=float))),
+            "wid_pvalues": dict(zip(QTERMS, np.asarray(rw.pvalues, dtype=float))),
         }
     return peaks, diagnostics
 

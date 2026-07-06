@@ -250,6 +250,9 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
             "adjR2_width": adj_r2(wid_res),
             "Q2_retention": q2_loo(ret_res),
             "Q2_width": q2_loo(wid_res),
+            # 各係数の p 値（列順＝キー順）。保持は多重共線で個別係数は不安定＝参考程度。
+            "ret_pvalues": dict(zip(ret_keys, np.asarray(ret_res.pvalues, dtype=float))),
+            "wid_pvalues": dict(zip(wid_keys, np.asarray(wid_res.pvalues, dtype=float))),
         }
     return peaks, diagnostics
 

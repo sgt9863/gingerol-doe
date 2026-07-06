@@ -279,6 +279,23 @@ def run_fit_and_designspace(df, header_prefix=""):
                    "検定が過敏になり、実用上は無視できる系統ズレでも有意になり得ます。"
                    "RMSE の実寸（秒）や Q² が許容範囲かも併せて判断してください。")
 
+    with st.expander("係数の p 値（各項が有意か・p<0.05 で有意）"):
+        def _pv_table(key):
+            rows = []
+            for nm in ALL_PEAKS:
+                r = {"ピーク": nm + ("（目的）" if nm == TARGET else "")}
+                r.update({k: ("—" if not np.isfinite(v) else round(v, 3))
+                          for k, v in diag[nm].get(key, {}).items()})
+                rows.append(r)
+            return pd.DataFrame(rows)
+        st.markdown("**保持モデル 係数 p 値**")
+        st.table(_pv_table("ret_pvalues"))
+        st.markdown("**幅モデル 係数 p 値**")
+        st.table(_pv_table("wid_pvalues"))
+        st.caption("p<0.05 でその項が統計的に有意。ただし**保持モデルは実験範囲が狭く多重共線**のため、"
+                   "個別係数の p 値・符号は不安定になりやすく深読み非推奨（予測精度＝RMSE/Q² で評価するのが妥当）。"
+                   "二次回帰では交差項の有意性の目安になる。")
+
     st.subheader(f"{header_prefix}デザインスペースと推奨条件")
 
     # ── 計算範囲（内挿 / 外挿）と最適化基準を 3D の手前で選ぶ ──
