@@ -80,35 +80,16 @@ def fit_retention(df, peak, Vm, include_d=True, include_e=True, include_day=True
 # ──────────────────────────────
 # 幅フィット
 # ──────────────────────────────
-def fit_width(df, peak, Vm, L_mm, include_phi=True, include_T=True, include_phi2=True):
-    """1ピークの拡張 van Deemter パラメータ (A,B,C,D,E,G) を OLS で推定。
-    H = A + B/u + C·u + D·φ + E/T_K + G·φ²。
-    include_* を False にするとその項を落とす（点数が少ない時の過学習回避用）。
-    u は流速 F でしか動かず範囲も狭いため、φ・T 項で当てはまりが改善する。
-    φ²(G) は段高の φ 依存の曲がり（C項の k 依存・水/ACN 粘度の山型）を捉える2次項。"""
+def fit_width(df, peak, Vm, L_mm):
+    """1ピークの幅パラメータ (wc0, wc1) を OLS で推定。W_h = wc0 + wc1·t_R。
+    理論段数 N はほぼ一定→ W_h は t_R にほぼ比例（AICc 後退法でも t_R が最良説明変数と支持）。
+    Vm, L_mm は署名互換のため受け取るが本モデルでは未使用。"""
     tR = df[f"tR_{peak}"].to_numpy(dtype=float)
     Wh = df[f"Wh_{peak}"].to_numpy(dtype=float)
-    F = df["F"].to_numpy(dtype=float)
-    phi = df["phi"].to_numpy(dtype=float)
-    T_K = df["T"].to_numpy(dtype=float) + KELVIN
-
-    N = N_from_width(tR, Wh)
-    H = L_mm / N
-    u = linear_velocity(F, Vm, L_mm)
-
-    cols = {"A": np.ones_like(u), "B": 1.0 / u, "C": u}
-    if include_phi:
-        cols["D"] = phi
-    if include_T:
-        cols["E"] = 1.0 / T_K
-    if include_phi2:
-        cols["G"] = phi ** 2
-    X = np.column_stack(list(cols.values()))
-    res = sm.OLS(H, X).fit()
-
-    fitted = dict(zip(cols.keys(), res.params))
-    params = {key: fitted.get(key, 0.0) for key in ["A", "B", "C", "D", "E", "G"]}
-    return params, res
+    X = np.column_stack([np.ones_like(tR), tR])
+    res = sm.OLS(Wh, X).fit()
+    wc0, wc1 = res.params
+    return {"wc0": float(wc0), "wc1": float(wc1)}, res
 
 
 # ──────────────────────────────
@@ -198,7 +179,7 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
     夾雑ピーク数は peak_names で任意に指定できる。
     各ピークは欠損（NaN）行をそのピークだけ除外してフィットする（部分欠損に頑健）。
     戻り値: (peaks_dict, diagnostics_dict)
-      peaks_dict[name] = {a,b,c,d,e,delta,A,B,C,D,E,G}
+      peaks_dict[name] = {a,b,c,d,e,delta,wc0,wc1}
       diagnostics[name] = {'R2_retention','R2_width','RMSE_tR_min','RMSE_Wh_min','n'}
 
     注: 実験範囲が狭く保持の説明変数は多重共線。個別係数は一意に決まりにくいが、
@@ -210,13 +191,7 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
     for name in names:
         sub = df.dropna(subset=[f"tR_{name}", f"Wh_{name}"])  # 欠損行を除外
         ret, ret_res = fit_retention(sub, name, Vm, include_d, include_e, include_day)
-        # 幅は φ・T・φ² 項で改善するが、点数が少ないと過学習。自由度を確保できる時だけ項を足す。
-        n = len(sub)
-        inc_phi = n >= 7      # 4パラメータ(A,B,C,D)に残差3点以上
-        inc_T = n >= 8        # 5パラメータ(A,B,C,D,E)に残差3点以上
-        inc_phi2 = n >= 9     # 6パラメータ(A,B,C,D,E,G)に残差3点以上
-        wid, wid_res = fit_width(sub, name, Vm, L_mm, include_phi=inc_phi,
-                                 include_T=inc_T, include_phi2=inc_phi2)
+        wid, wid_res = fit_width(sub, name, Vm, L_mm)   # 幅 = wc0 + wc1·t_R
         peaks[name] = {**ret, **wid}
 
         # 予測スケールでの当てはまり（本当に意味のある指標）
@@ -224,15 +199,13 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
         tR_meas = sub[f"tR_{name}"].to_numpy(dtype=float)
         Wh_meas = sub[f"Wh_{name}"].to_numpy(dtype=float)
         tR_hat = (Vm / F) * (1.0 + np.exp(ret_res.fittedvalues))   # ln k → k → t_R
-        N_hat = L_mm / wid_res.fittedvalues                        # H → N
-        Wh_hat = np.sqrt(EIGHT_LN2) * tR_meas / np.sqrt(N_hat)
+        Wh_hat = np.asarray(wid_res.fittedvalues)                  # W_h = wc0 + wc1·t_R
 
         # 係数の共分散（誤差伝搬で Rs の信頼区間を出すのに使う）。
         # OLS の cov_params = σ²(XᵀX)⁻¹。列の並びは下のキー順と一致する。
         ret_keys = ["a", "b", "c"] + (["d"] if include_d else []) \
             + (["e"] if include_e else []) + (["delta"] if include_day else [])
-        wid_keys = ["A", "B", "C"] + (["D"] if inc_phi else []) \
-            + (["E"] if inc_T else []) + (["G"] if inc_phi2 else [])
+        wid_keys = ["wc0", "wc1"]
 
         diagnostics[name] = {
             "R2_retention": ret_res.rsquared,
