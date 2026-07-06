@@ -48,6 +48,24 @@ def _rmse(a, b):
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
+def adj_r2(res):
+    """自由度調整済み R²（nan なら None）。"""
+    v = float(res.rsquared_adj)
+    return None if not np.isfinite(v) else v
+
+
+def q2_loo(res):
+    """Q²（予測 R²）= 1 − PRESS/SST。OLS の LOO 残差 e_i/(1−h_ii) から算出（03_fit と同定義）。"""
+    y = np.asarray(res.model.endog, dtype=float)
+    resid = np.asarray(res.resid, dtype=float)
+    h = np.asarray(res.get_influence().hat_matrix_diag, dtype=float)
+    if np.any(h > 1.0 - 1e-8):
+        return None
+    press = float(np.sum((resid / (1.0 - h)) ** 2))
+    sst = float(np.sum((y - y.mean()) ** 2))
+    return None if sst <= 0 else 1.0 - press / sst
+
+
 def lack_of_fit(cond_df, res):
     """同一条件の繰り返し（純誤差）から当てはまり不足を F 検定（03_fit と同定義）。
     レプリケートが無い/自由度不足なら None。p<0.05 で「モデルで説明しきれないズレあり」。"""
@@ -106,6 +124,10 @@ def fit_all(df, Vm, L_mm, peak_names=None, **_ignore):
             "Wh_cov": np.asarray(rw.cov_params()),
             "LOF_retention": lack_of_fit(sub, rt),
             "LOF_width": lack_of_fit(sub, rw),
+            "adjR2_retention": adj_r2(rt),
+            "adjR2_width": adj_r2(rw),
+            "Q2_retention": q2_loo(rt),
+            "Q2_width": q2_loo(rw),
         }
     return peaks, diagnostics
 
