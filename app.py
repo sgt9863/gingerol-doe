@@ -93,41 +93,57 @@ def read_runs(uploaded, required_cols):
 # ──────────────────────────────
 # 画面共通：設定・スタイル
 # ──────────────────────────────
-st.set_page_config(page_title="HPLC デザインスペース最適化", page_icon="⚗️", layout="wide")
+st.set_page_config(page_title="HPLC デザインスペース最適化", layout="wide")
 
 st.markdown("""
 <style>
-  :root { --accent:#0d9488; --accent2:#0891b2; }
-  .block-container { padding-top: 1.4rem; max-width: 1180px; }
-  /* ヘッダーバンド */
-  .app-header { background: linear-gradient(100deg,#0d9488,#0891b2);
-    color:#fff; padding:1.05rem 1.4rem; border-radius:14px; margin-bottom:1.1rem;
-    box-shadow:0 6px 18px rgba(13,148,136,.28); }
-  .app-header h1 { margin:0; font-size:1.55rem; font-weight:700; color:#fff; letter-spacing:.01em; }
-  .app-header p  { margin:.35rem 0 0; font-size:.9rem; color:#e7fbf7; opacity:.95; }
-  /* タブ */
-  .stTabs [data-baseweb="tab-list"] { gap:.35rem; border-bottom:1px solid rgba(13,148,136,.18); }
-  .stTabs [data-baseweb="tab"] { border-radius:9px 9px 0 0; padding:.45rem 1rem; font-weight:600; }
-  .stTabs [aria-selected="true"] { background:rgba(13,148,136,.12); color:var(--accent); }
-  /* メトリクスをカード風に（背景はテーマ既定を尊重、枠と角丸のみ） */
-  [data-testid="stMetric"] { border:1px solid rgba(13,148,136,.22); border-radius:12px;
-    padding:.75rem 1rem; }
-  [data-testid="stMetricValue"] { color:var(--accent); }
-  /* expander / popover を角丸に */
-  [data-testid="stExpander"] { border-radius:12px; border:1px solid rgba(0,0,0,.10); }
-  /* テーブルのヘッダ強調 */
-  [data-testid="stTable"] thead th { background:rgba(13,148,136,.08); font-weight:700; }
-  /* ボタン角丸 */
+  :root { --accent:#0d9488; --accent2:#0891b2; --line:rgba(128,128,128,.22); }
+  .block-container { padding-top: 1.1rem; max-width: 1120px; }
+
+  /* ── ヘッダー（帯ではなく、グラデ見出し＋細いルール） ── */
+  .app-header { margin:.1rem 0 1.15rem; }
+  .app-header h1 { margin:0; font-size:1.55rem; font-weight:650; letter-spacing:-.015em;
+    background:linear-gradient(92deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .app-header p { margin:.3rem 0 0; font-size:.85rem; font-weight:400; opacity:.68; }
+  .app-header .rule { height:2px; margin-top:.75rem; border-radius:2px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2) 38%,transparent 92%); }
+
+  /* ── 設定内の小見出しラベル（大文字・トラッキング） ── */
+  .sec-label { font-size:.7rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--accent); margin:.15rem 0 .45rem; }
+
+  /* ── タブ：下線式のアクティブ表示 ── */
+  .stTabs [data-baseweb="tab-list"] { gap:1.5rem; border-bottom:1px solid var(--line); }
+  .stTabs [data-baseweb="tab"] { padding:.5rem .15rem; font-weight:600; font-size:.95rem; }
+  .stTabs [aria-selected="true"] { color:var(--accent); }
+  .stTabs [data-baseweb="tab-highlight"] { background:var(--accent); height:2px; }
+
+  /* ── メトリクスを淡いカードに ── */
+  [data-testid="stMetric"] { border:1px solid var(--line); border-radius:12px;
+    padding:.7rem 1rem; background:rgba(13,148,136,.035); }
+  [data-testid="stMetricValue"] { color:var(--accent); font-weight:700; }
+
+  /* ── expander / popover は角丸・細枠 ── */
+  [data-testid="stExpander"] { border-radius:12px; border:1px solid var(--line); }
+  [data-testid="stExpander"] summary { font-weight:600; }
+
+  /* ── テーブルのヘッダ強調 ── */
+  [data-testid="stTable"] thead th { background:rgba(13,148,136,.07); font-weight:700; }
+
+  /* ── ボタン角丸 ── */
   .stButton button, .stDownloadButton button { border-radius:10px; font-weight:600; }
-  /* 見出しの上マージン圧縮 */
-  h2, h3 { margin-top:.4rem; }
+
+  /* ── 見出しを引き締める ── */
+  h2, h3 { margin-top:.3rem; font-weight:650; letter-spacing:-.006em; }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="app-header">
-  <h1>⚗️ HPLC デザインスペース最適化</h1>
+  <h1>HPLC デザインスペース最適化</h1>
   <p>実験計画（CCD / BBD） → メカニズム・二次回帰フィット → デザインスペース → ロバストな最適条件</p>
+  <div class="rule"></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -137,9 +153,11 @@ if cfg is None:
     st.error("config.yaml / config.example.yaml が見つかりません。")
     st.stop()
 
-# ── 設定はページ上部の「⚙ 共通設定」expander に集約する ──
-# タブより前に render_settings() を呼び、全設定をグローバルに確定してから
-# 各タブ（①計画・②解析・③D最適・デモ）がそれを参照する。
+# ── 設定の構成 ──
+# 上部の「共通設定」expander には全タブ共通のもの（分離対象・カラム・合格条件）だけを置き、
+# タブより前に render_settings() で確定する。計画・解析モデル・D最適など各タブ固有の設定は、
+# それぞれのタブ冒頭で入力する（Streamlit は全タブを毎回描画するので、①→②→③→デモの
+# 順に実行され、後段タブが参照するグローバルは前段タブで確定済みになる）。
 fc = cfg["factors"]
 ac = cfg["acceptance_criteria"]
 colu = cfg["column"]
@@ -155,10 +173,15 @@ DESIGN_OPTIONS = {
 grid_n = 51                            # デザインスペース格子の解像度（固定）
 
 
+def section_label(text):
+    """設定内の小見出し（大文字・トラッキングのアクセントラベル）。"""
+    st.markdown(f"<div class='sec-label'>{text}</div>", unsafe_allow_html=True)
+
+
 def basic_factor_inputs():
-    """因子範囲・ピーク構成の入力（①計画タブの冒頭で呼ぶ）。グローバルに値を設定する。"""
+    """因子範囲・ピーク構成の入力（共通設定の「分離対象」で呼ぶ）。グローバルに値を設定する。"""
     global factors, INTERFERING, ALL_PEAKS, RESPONSE_COLS, REQUIRED_COLS
-    st.markdown("**因子範囲（T・φ・F の下限／上限）**")
+    st.caption("因子範囲（T・φ・F の下限／上限）")
     sc = st.columns(3)
     T_lo = sc[0].number_input("T 下限 [℃]", value=float(fc["T"]["low"]))
     T_hi = sc[0].number_input("T 上限 [℃]", value=float(fc["T"]["high"]))
@@ -193,10 +216,9 @@ def ccd_design_inputs():
         c[1].caption(f"CCD: 頂点8 ＋ 軸上点6 ＋ 中心点（α = {alpha_ccd:.4f}）")
 
 
-def column_and_criteria_inputs():
-    """カラム寸法→V_m と合格条件の入力（②フィット&結果タブの冒頭で呼ぶ）。"""
-    global Vm, L_mm, criteria
-    st.markdown("**カラム（寸法から V_m を計算）**")
+def column_inputs():
+    """カラム寸法 → V_m の入力（共通設定の「カラム」で呼ぶ）。"""
+    global Vm, L_mm
     cc = st.columns(3)
     id_default = float(colu.get("id_mm", 2.1))
     len_default = int(colu.get("length_mm", 100))
@@ -211,7 +233,11 @@ def column_and_criteria_inputs():
         Vm = st.number_input("V_m [mL]", value=round(Vm_geo, 3), format="%.3f")
     else:
         Vm = Vm_geo
-    st.markdown("**合格条件**")
+
+
+def criteria_inputs():
+    """合格条件（Rs_min・t_R(TP) 上限）の入力（共通設定の「合格条件」で呼ぶ）。"""
+    global criteria
     ac_cols = st.columns(2)
     criteria = {
         "Rs_min": ac_cols[0].number_input("Rs_min ≥", value=float(ac["Rs_min"]), format="%.1f"),
@@ -247,7 +273,7 @@ def model_inputs():
         active_model, active_fit = quad, quad
     else:
         active_model, active_fit = model, fit
-    with st.popover("📐 モデルの数式"):
+    with st.popover("モデルの数式を表示"):
         if model_type == "quad":
             st.markdown("**二次回帰（応答曲面）モデル** — t_R・W_h を各ピークごとに (T, φ, F) のフル2次で直接フィット")
             st.latex(r"y = \beta_0 + \beta_1 T + \beta_2 \varphi + \beta_3 F"
@@ -270,18 +296,18 @@ def model_inputs():
 
 
 def render_settings():
-    """全設定をページ上部の expander にまとめて描画（タブより前に呼ぶ）。"""
-    with st.expander("⚙ 共通設定（因子範囲・ピーク・モデル・カラム・合格条件・計画）", expanded=True):
-        c1, c2 = st.columns(2)
+    """全タブで共通の設定（分離対象・カラム・合格条件）だけをページ上部にまとめる。
+    計画・解析モデル・D最適など各タブ固有の設定は、それぞれのタブ内で入力する。"""
+    with st.expander("共通設定 — 分離対象・カラム・合格条件", expanded=True):
+        c1, c2 = st.columns([1.15, 1])
         with c1:
+            section_label("分離対象")
             basic_factor_inputs()
-            st.markdown("**解析モデル**")
-            model_inputs()
         with c2:
-            ccd_design_inputs()
-            augment_inputs()
-        st.divider()
-        column_and_criteria_inputs()
+            section_label("カラム（→ V_m）")
+            column_inputs()
+            section_label("合格条件")
+            criteria_inputs()
 
 
 def run_fit_and_designspace(df, header_prefix=""):
@@ -498,10 +524,12 @@ def run_fit_and_designspace(df, header_prefix=""):
 render_settings()
 
 tab1, tab2, tab3, tab_demo = st.tabs(
-    ["🧭 ① 計画", "📊 ② 解析", "➕ ③ D最適（任意）", "▶ デモ"])
+    ["① 計画", "② 解析", "③ D最適（任意）", "デモ"])
 
 # ── ① 計画 ──
 with tab1:
+    section_label("実験計画の設定")
+    ccd_design_inputs()
     _plan_desc = ("Box-Behnken 計画（辺中点12＋中心点）" if design_kind == "bbd"
                   else "中心複合計画（頂点8＋軸上6＋中心点）")
     st.caption(f"{_plan_desc}。雛形をDLし、{len(ALL_PEAKS)} ピーク（{', '.join(ALL_PEAKS)}）の "
@@ -523,6 +551,8 @@ with tab1:
 
 # ── ② 解析（CCD だけでも、Day1+Day2 でも。ファイル複数可）──
 with tab2:
+    section_label("解析モデル")
+    model_inputs()
     st.caption("記入済みデータ（xlsx/csv、複数可）を読み込み → フィット → デザインスペース → 推奨条件。"
                "**CCD だけで完結**します（③ D最適は任意）。")
     ups = st.file_uploader("記入済みデータ（1つでも複数でも可）", type=["xlsx", "csv"],
@@ -544,6 +574,8 @@ with tab2:
 
 # ── ③ D最適 augment（任意）──
 with tab3:
+    section_label("D最適の設定")
+    augment_inputs()
     st.caption("**任意**。② の結果に、境界の予測精度を上げたいときだけ Day2 の追加点を生成します。"
                "別日実施のため冒頭に橋渡し中心点（日間差測定用）を入れます。")
     basis = st.radio(
