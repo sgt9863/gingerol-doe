@@ -29,19 +29,14 @@
       e     : 温度×溶媒の交互作用項（溶媒傾き S が温度で変わる効果。
               ピークごとに違うとクロスオーバーが起きる。不要なら 0）
       delta : 日間差（ブロック項。別日のオフセット）
-  width（幅・拡張 van Deemter）: A, B, C, D, E, G
-    H = A + B/u + C*u + D*phi + E/T_K + G*phi^2
-        （H=段高 [mm], u=線速度 [mm/min], T_K=T+273.15）
-      A : 渦拡散項 [mm]
-      B : 縦拡散項 [mm^2/min]
-      C : 物質移動抵抗項 [min]
-      D : 溶媒1次項（φ が段高に与える効果。0 で従来の u のみ van Deemter）
-      E : 温度項（1/T_K が段高に与える効果。0 で従来の u のみ van Deemter）
-      G : 溶媒2次項（φ² の曲がり。0 で無効）
-    ※ u は流速 F でしか動かず範囲も狭いため、実データでは段高 H が T・φ で大きく変わる。
-      φ² が効くのは物理的に: (1) C項は保持係数 k に依存（C_s∝k/(1+k)²）し k=k_w·e^{-Sφ} は
-      φ の指数→H(φ) は曲がる、(2) 水/ACN 粘度が φ で山型→拡散係数 D_m=∝1/粘度 経由で
-      B・C 項が曲がる。G·φ² はこの leading curvature の2次テイラー近似。
+  width（幅・保持時間比例モデル）: wc0, wc1
+    W_h = wc0 + wc1 · t_R      （W_h=半値幅 [min], t_R=保持時間 [min]）
+      wc0 : 切片
+      wc1 : t_R への傾き
+    根拠: W_h = √(8ln2)·t_R/√N で、理論段数 N は条件でほぼ一定（実データ CV 5〜13%）なので
+    W_h は t_R にほぼ比例する。AICc 後退法でも「W_h の最良の説明変数は t_R」と支持された
+    （van Deemter の u 項・φ・T 項は F 範囲が狭く効果を検出できず削除される）。
+    ベースライン幅は W_b = (4/√(8ln2))·W_h ≈ 1.699·W_h（ガウス近似で W_h と一定比）。
 
 すべての関数は scalar でも numpy 配列でも動く（グリッド評価のためベクトル化対応）。
 """
@@ -50,6 +45,7 @@ import numpy as np
 
 KELVIN = 273.15          # ℃ → K の変換オフセット
 EIGHT_LN2 = 8.0 * np.log(2.0)   # = 5.545…（半値幅 ↔ 段数の換算定数）
+WB_OVER_WH = 4.0 / np.sqrt(EIGHT_LN2)   # W_b = 4t_R/√N, W_h=√(8ln2)t_R/√N → W_b ≈ 1.699·W_h
 
 
 # ──────────────────────────────
@@ -113,20 +109,17 @@ def plate_count_from_width(t_R, W_h):
 # 1ピックの予測をまとめる
 # ──────────────────────────────
 def predict_peak(peak, T, phi, F, Vm, L_mm, day=0):
-    """1ピークの t_R, N, W_h, W_b を dict で返す。peak は上記パラメータの dict。"""
+    """1ピークの t_R, N, W_h, W_b を dict で返す。peak は上記パラメータの dict。
+    幅は保持時間比例モデル W_h = wc0 + wc1·t_R（N はほぼ一定という近似）。"""
     tR = retention_time(
         T, phi, F, Vm,
         peak["a"], peak["b"], peak["c"],
         peak.get("d", 0.0), peak.get("e", 0.0), day, peak.get("delta", 0.0),
     )
-    N = plate_count(T, phi, F, Vm, L_mm, peak["A"], peak["B"], peak["C"],
-                    peak.get("D", 0.0), peak.get("E", 0.0), peak.get("G", 0.0))
-    return {
-        "tR": tR,
-        "N": N,
-        "Wh": width_half_height(tR, N),
-        "Wb": width_baseline(tR, N),
-    }
+    Wh = np.maximum(peak["wc0"] + peak["wc1"] * tR, 1e-6)   # 外挿で負→微小正にクリップ
+    Wb = WB_OVER_WH * Wh
+    N = EIGHT_LN2 * (tR / Wh) ** 2                          # 参考（表示用）
+    return {"tR": tR, "N": N, "Wh": Wh, "Wb": Wb}
 
 
 # ──────────────────────────────
@@ -203,7 +196,7 @@ def example_peaks():
     実際は 03_fit.py が実測データから推定した値で置き換える。
     中水準（T=50, phi=0.45, F=0.6, Vm=0.24, L=100）で3ピークが ~7分付近・IP1<TP<IP2 になるよう設定。
     """
-    vd = {"A": 0.003, "B": 0.3, "C": 2.0e-5, "D": 0.0, "E": 0.0, "G": 0.0}   # 拡張 van Deemter（例）
+    vd = {"wc0": 0.012, "wc1": 0.018}   # 幅 = wc0 + wc1·t_R（実データ回帰に近い例値）
     return {
         "IP1": {"a": -1.39, "b": 1800.0, "c": -3.2, "d": 0.0, "e": 0.0, "delta": 0.0, **vd},
         "TP":  {"a": -0.49, "b": 1500.0, "c": -3.0, "d": 0.0, "e": 0.0, "delta": 0.0, **vd},
