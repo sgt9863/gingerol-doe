@@ -91,10 +91,45 @@ def read_runs(uploaded, required_cols):
 
 
 # ──────────────────────────────
-# 画面共通：設定（サイドバー）
+# 画面共通：設定・スタイル
 # ──────────────────────────────
-st.set_page_config(page_title="HPLC デザインスペース最適化", layout="wide")
-st.title("HPLC デザインスペース最適化")
+st.set_page_config(page_title="HPLC デザインスペース最適化", page_icon="⚗️", layout="wide")
+
+st.markdown("""
+<style>
+  :root { --accent:#0d9488; --accent2:#0891b2; }
+  .block-container { padding-top: 1.4rem; max-width: 1180px; }
+  /* ヘッダーバンド */
+  .app-header { background: linear-gradient(100deg,#0d9488,#0891b2);
+    color:#fff; padding:1.05rem 1.4rem; border-radius:14px; margin-bottom:1.1rem;
+    box-shadow:0 6px 18px rgba(13,148,136,.28); }
+  .app-header h1 { margin:0; font-size:1.55rem; font-weight:700; color:#fff; letter-spacing:.01em; }
+  .app-header p  { margin:.35rem 0 0; font-size:.9rem; color:#e7fbf7; opacity:.95; }
+  /* タブ */
+  .stTabs [data-baseweb="tab-list"] { gap:.35rem; border-bottom:1px solid rgba(13,148,136,.18); }
+  .stTabs [data-baseweb="tab"] { border-radius:9px 9px 0 0; padding:.45rem 1rem; font-weight:600; }
+  .stTabs [aria-selected="true"] { background:rgba(13,148,136,.12); color:var(--accent); }
+  /* メトリクスをカード風に（背景はテーマ既定を尊重、枠と角丸のみ） */
+  [data-testid="stMetric"] { border:1px solid rgba(13,148,136,.22); border-radius:12px;
+    padding:.75rem 1rem; }
+  [data-testid="stMetricValue"] { color:var(--accent); }
+  /* expander / popover を角丸に */
+  [data-testid="stExpander"] { border-radius:12px; border:1px solid rgba(0,0,0,.10); }
+  /* テーブルのヘッダ強調 */
+  [data-testid="stTable"] thead th { background:rgba(13,148,136,.08); font-weight:700; }
+  /* ボタン角丸 */
+  .stButton button, .stDownloadButton button { border-radius:10px; font-weight:600; }
+  /* 見出しの上マージン圧縮 */
+  h2, h3 { margin-top:.4rem; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="app-header">
+  <h1>⚗️ HPLC デザインスペース最適化</h1>
+  <p>実験計画（CCD / BBD） → メカニズム・二次回帰フィット → デザインスペース → ロバストな最適条件</p>
+</div>
+""", unsafe_allow_html=True)
 
 model, design, fit, opt, ds, quad = load_modules(_scripts_signature())
 cfg, cfg_name = load_config()
@@ -463,7 +498,7 @@ def run_fit_and_designspace(df, header_prefix=""):
 render_settings()
 
 tab1, tab2, tab3, tab_demo = st.tabs(
-    ["① 計画", "② 解析", "③ D最適（任意）", "デモ"])
+    ["🧭 ① 計画", "📊 ② 解析", "➕ ③ D最適（任意）", "▶ デモ"])
 
 # ── ① 計画 ──
 with tab1:
