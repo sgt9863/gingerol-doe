@@ -245,6 +245,10 @@ def run_fit_and_designspace(df, header_prefix=""):
     def _lof_p(lof):
         return "—" if not lof else round(lof["p"], 3)
 
+    def _r2_triple(r2, adj, q2):
+        f = lambda v: "—" if v is None else f"{v:.3f}"
+        return f"{r2:.3f} / {f(adj)} / {f(q2)}"
+
     rows = []
     lof_flag = False
     for nm in ALL_PEAKS:
@@ -255,21 +259,23 @@ def run_fit_and_designspace(df, header_prefix=""):
         rows.append({
             "ピーク": nm + ("（目的）" if nm == TARGET else ""),
             "n": d.get("n", ""),
-            "R²(保持)": round(d["R2_retention"], 4),
-            "R²(幅)": round(d["R2_width"], 4),
-            "RMSE(t_R)[秒]": round(d["RMSE_tR_min"] * 60, 2),
-            "RMSE(W_h)[秒]": round(d["RMSE_Wh_min"] * 60, 2),
+            "保持 R²/adj/Q²": _r2_triple(d["R2_retention"], d.get("adjR2_retention"),
+                                         d.get("Q2_retention")),
+            "RMSE(t_R)秒": round(d["RMSE_tR_min"] * 60, 2),
             "LOF p(保持)": _lof_p(lr),
+            "幅 R²/adj/Q²": _r2_triple(d["R2_width"], d.get("adjR2_width"), d.get("Q2_width")),
+            "RMSE(W_h)秒": round(d["RMSE_Wh_min"] * 60, 2),
             "LOF p(幅)": _lof_p(lw),
         })
     st.table(pd.DataFrame(rows))
-    st.caption("R²=当てはまり、RMSE=予測の平均的なズレ（小さいほど良い）。n=使った点数（欠損は除外）。"
-               "**LOF p=lack-of-fit 検定の p 値**（中心点の反復＝純誤差と比較）。"
-               "p が大きい(>0.05)ほど当てはまり不足の証拠なし＝モデル妥当。「—」は反復点が無く検定不能。")
+    st.caption("**R²/adj/Q²** = 当てはまり / 自由度調整済み R² / 予測 R²（Q²=LOO交差検証）。"
+               "n=使った点数（欠損除外）。RMSE=予測の平均的ズレ。"
+               "**Q² が R² に近いほど過学習が小さく予測力が高い**（Q²≪R² は過学習のサイン）。"
+               "**LOF p**=lack-of-fit 検定（中心点の純誤差と比較。p>0.05 で当てはまり不足の証拠なし）。「—」は算出不能。")
     if lof_flag:
         st.warning("⚠ 一部で LOF p<0.05（当てはまり不足の兆候）。ただし中心点の純誤差が極めて小さいと"
                    "検定が過敏になり、実用上は無視できる系統ズレでも有意になり得ます。"
-                   "RMSE の実寸（秒）が許容範囲かも併せて判断してください。")
+                   "RMSE の実寸（秒）や Q² が許容範囲かも併せて判断してください。")
 
     st.subheader(f"{header_prefix}デザインスペースと推奨条件")
 

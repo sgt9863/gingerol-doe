@@ -112,6 +112,33 @@ def fit_width(df, peak, Vm, L_mm, include_phi=True, include_T=True, include_phi2
 
 
 # ──────────────────────────────
+# 調整済み R² ／ Q²（予測 R²・LOO/PRESS ベース）
+# ──────────────────────────────
+def adj_r2(res):
+    """自由度調整済み R²。パラメータ数に対する当てはまりの水増しを補正。
+    statsmodels の rsquared_adj をそのまま返す（サンプル/パラメータ不足なら nan → None）。"""
+    v = float(res.rsquared_adj)
+    return None if not np.isfinite(v) else v
+
+
+def q2_loo(res):
+    """Q²（予測 R²）= 1 − PRESS/SS_total。OLS なら LOO 残差は e_i/(1−h_ii) で
+    再フィット不要に求まる（h_ii=ハット行列の対角=レバレッジ）。
+    Q² が R² に近いほど過学習が小さく予測力が高い。h_ii≈1 の点があれば計算不能→None。"""
+    y = np.asarray(res.model.endog, dtype=float)
+    resid = np.asarray(res.resid, dtype=float)
+    infl = res.get_influence()
+    h = np.asarray(infl.hat_matrix_diag, dtype=float)
+    if np.any(h > 1.0 - 1e-8):
+        return None
+    press = float(np.sum((resid / (1.0 - h)) ** 2))
+    sst = float(np.sum((y - y.mean()) ** 2))
+    if sst <= 0:
+        return None
+    return 1.0 - press / sst
+
+
+# ──────────────────────────────
 # lack-of-fit 検定（純誤差 vs 当てはまり不足）
 # ──────────────────────────────
 def lack_of_fit(cond_df, res):
@@ -219,6 +246,10 @@ def fit_all(df, Vm, L_mm, include_d=True, include_e=True, include_day=True,
             "wid_cov": np.asarray(wid_res.cov_params()),
             "LOF_retention": lack_of_fit(sub, ret_res),   # 保持モデルの当てはまり不足
             "LOF_width": lack_of_fit(sub, wid_res),        # 幅モデルの当てはまり不足
+            "adjR2_retention": adj_r2(ret_res),
+            "adjR2_width": adj_r2(wid_res),
+            "Q2_retention": q2_loo(ret_res),
+            "Q2_width": q2_loo(wid_res),
         }
     return peaks, diagnostics
 
