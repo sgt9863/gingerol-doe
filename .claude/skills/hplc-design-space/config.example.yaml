@@ -34,21 +34,23 @@ column:
 # 中水準は現行条件より低温・高ACN側にシフト（現行: T=75℃ / phi=0.40 / F=0.6）
 # F の水準は t_R = Vm*(1+k)/F の反比例から計算。
 #   実測後の更新式: F_low = Vm*(1+k_center)/tR_high, F_high = Vm*(1+k_center)/tR_low
+# 既定値は実測 Day1 CCD（data/demo_runs.csv）の設計範囲（±1 水準）に合わせてある。
+# → ②解析タブの初期因子範囲がデモと一致する。別化合物では自分の設計範囲に書き換える。
 factors:
   T:
-    low: 40          # [°C]
+    low: 45          # [°C]
     center: 50       # [°C]  中水準
-    high: 60         # [°C]
+    high: 55         # [°C]
     unit: "degC"
   phi:
-    low: 0.38        # ACN 体積分率（= 38% ACN）
+    low: 0.42        # ACN 体積分率（= 42% ACN）
     center: 0.45     # ACN 体積分率（= 45% ACN）
-    high: 0.52       # ACN 体積分率（= 52% ACN）
+    high: 0.48       # ACN 体積分率（= 48% ACN）
     unit: "ACN_fraction"
   F:
-    low: 0.4         # [mL/min]
-    center: 0.6      # [mL/min]
-    high: 0.8        # [mL/min]
+    low: 0.55        # [mL/min]
+    center: 0.60     # [mL/min]
+    high: 0.65       # [mL/min]
     unit: "mL_per_min"
 
 # ──────────────────────────────
