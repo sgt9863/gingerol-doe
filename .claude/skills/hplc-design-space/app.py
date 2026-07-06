@@ -212,6 +212,26 @@ def model_inputs():
         active_model, active_fit = quad, quad
     else:
         active_model, active_fit = model, fit
+    with st.popover("📐 モデルの数式"):
+        if model_type == "quad":
+            st.markdown("**二次回帰（応答曲面）モデル** — t_R・W_h を各ピークごとに (T, φ, F) のフル2次で直接フィット")
+            st.latex(r"y = \beta_0 + \beta_1 T + \beta_2 \varphi + \beta_3 F"
+                     r" + \beta_4 T^2 + \beta_5 \varphi^2 + \beta_6 F^2"
+                     r" + \beta_7 T\varphi + \beta_8 TF + \beta_9 \varphi F")
+            st.caption("y は t_R または W_h。分離度 Rs は予測した t_R・W_h から計算。")
+        else:
+            st.markdown("**メカニズムモデル**（クロマトの物理式）")
+            st.markdown("保持係数 k（ファントホッフ × LSS）:")
+            st.latex(r"\ln k = a + \frac{b}{T_K} + c\,\varphi + d\,\varphi^2"
+                     r" + e\,\frac{\varphi}{T_K} + \delta\,\mathrm{day}")
+            st.markdown("保持時間:")
+            st.latex(r"t_R = \frac{V_m}{F}\,(1 + k)")
+            st.markdown("ピーク幅（保持時間比例。N ほぼ一定 → W_h ∝ t_R）:")
+            st.latex(r"W_h = w_{c0} + w_{c1}\,t_R,\qquad W_b = \tfrac{4}{\sqrt{8\ln 2}}\,W_h")
+        st.markdown("分離度（クロスオーバー対応・化合物同一性で固定）:")
+        st.latex(r"R_s = \frac{2\,|t_R^{\mathrm{TP}} - t_R^{\mathrm{IP}}|}{W_b^{\mathrm{TP}} + W_b^{\mathrm{IP}}},"
+                 r"\qquad \text{目標}\ \min_{\mathrm{IP}} R_s \ge 2.0")
+        st.caption("T_K=T+273.15[K]、φ=ACN分率、u=L·F/V_m。記号の詳細は references/理論構築の流れ.md。")
 
 
 def render_settings():
