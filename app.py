@@ -50,8 +50,10 @@ def _scripts_signature():
 
 
 @st.cache_resource
-def load_modules(_sig):
-    # _sig はキャッシュキー専用（中身は使わない）。スクリプトが変わると再ロードされる。
+def load_modules(scripts_sig):
+    # scripts_sig はキャッシュキー専用（中身は使わない）。スクリプトが変わると再ロードされる。
+    # 注意: 引数名をアンダースコア始まりにすると Streamlit がハッシュ対象から除外し、
+    # キャッシュが無効化されなくなる（古いモジュールが居座る）。必ず非アンダースコア名にする。
     model = _load(os.path.join(SCRIPTS, "01_model.py"), "model01")
     design = _load(os.path.join(SCRIPTS, "02_design.py"), "design02")
     fit = _load(os.path.join(SCRIPTS, "03_fit.py"), "fit03")
