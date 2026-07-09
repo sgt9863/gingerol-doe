@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>グラジエント分離モデル 理解ノート | HPLC 条件最適化</title>
+<script>
+  MathJax = {
+    tex: { inlineMath: [['\\(', '\\)']], displayMath: [['$$', '$$']] },
+    options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'] }
+  };
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1a1e24; --muted:#5b6472; --line:#e3e7ee;
+    --card:#f6f8fb; --accent:#1f6feb; --accent-soft:#e8f0fe;
+    --warn-bg:#fff7e6; --warn-line:#f0c36d; --ok-bg:#eaf7ee; --ok-line:#9fd6ac;
+    --code:#0b3d91; --maxw:820px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f1216; --fg:#e6e9ef; --muted:#9aa4b2; --line:#262c36;
+      --card:#161b22; --accent:#5b9bff; --accent-soft:#12233f;
+      --warn-bg:#2a2410; --warn-line:#6b5a20; --ok-bg:#122117; --ok-line:#2f6b40;
+      --code:#9fc0ff;
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Segoe UI",Roboto,sans-serif;
+    line-height:1.85; font-size:16.5px; letter-spacing:.01em;
+  }
+  .wrap{display:flex; gap:0; max-width:1180px; margin:0 auto;}
+  /* sidebar */
+  nav.toc{
+    position:sticky; top:0; align-self:flex-start; height:100vh; overflow-y:auto;
+    width:280px; flex:0 0 280px; padding:26px 18px 60px; border-right:1px solid var(--line);
+    font-size:14px;
+  }
+  nav.toc h2{font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:18px 0 8px;}
+  nav.toc a{display:block; color:var(--muted); text-decoration:none; padding:3px 8px; border-radius:6px; margin:1px 0;}
+  nav.toc a:hover{background:var(--accent-soft); color:var(--accent);}
+  nav.toc .lead{font-weight:700; color:var(--fg); font-size:15px; margin-bottom:4px;}
+  nav.toc .sub{padding-left:18px; font-size:13px;}
+  /* content */
+  main{flex:1 1 auto; min-width:0; padding:34px clamp(18px,4vw,54px) 120px; max-width:var(--maxw);}
+  header.hero{margin-bottom:8px;}
+  header.hero .kicker{color:var(--accent); font-weight:700; font-size:13px; letter-spacing:.1em; text-transform:uppercase;}
+  header.hero h1{font-size:clamp(26px,4vw,36px); line-height:1.25; margin:.2em 0 .1em;}
+  header.hero p.sub{color:var(--muted); font-size:16px; margin:.2em 0 0;}
+  h2.sec{font-size:24px; margin:2.4em 0 .5em; padding-top:.4em; border-top:2px solid var(--line);}
+  h3{font-size:19px; margin:1.6em 0 .3em;}
+  h4{font-size:16.5px; margin:1.2em 0 .2em; color:var(--muted);}
+  p{margin:.7em 0;}
+  a{color:var(--accent);}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9em; color:var(--code); background:var(--card); padding:.1em .35em; border-radius:5px;}
+  ul,ol{padding-left:1.4em;} li{margin:.3em 0;}
+  .lead-para{font-size:17.5px;}
+  /* boxes */
+  .box{border:1px solid var(--line); background:var(--card); border-radius:12px; padding:14px 18px; margin:1.2em 0;}
+  .box.accent{border-color:var(--accent); background:var(--accent-soft);}
+  .box.warn{border-color:var(--warn-line); background:var(--warn-bg);}
+  .box.ok{border-color:var(--ok-line); background:var(--ok-bg);}
+  .box .tag{display:inline-block; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); margin-bottom:2px;}
+  .box.warn .tag{color:#b9861f;} .box.ok .tag{color:#2f8f4e;}
+  .stat-bridge{border-left:4px solid var(--accent); padding:2px 0 2px 16px; margin:1.1em 0; color:var(--fg);}
+  .stat-bridge .lbl{font-weight:700; color:var(--accent); font-size:13px; letter-spacing:.05em;}
+  /* table */
+  .tablewrap{overflow-x:auto; margin:1.2em 0;}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:520px;}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top;}
+  th{background:var(--card); font-weight:700;}
+  tr:nth-child(even) td{background:color-mix(in srgb, var(--card) 45%, transparent);}
+  .sym{font-family:ui-monospace,monospace; white-space:nowrap; color:var(--code);}
+  /* misc */
+  .pill{display:inline-block; font-size:12px; background:var(--accent-soft); color:var(--accent); border-radius:999px; padding:1px 10px; margin:0 2px;}
+  hr{border:0; border-top:1px solid var(--line); margin:2.4em 0;}
+  .foot{color:var(--muted); font-size:13.5px; margin-top:3em;}
+  .step{counter-reset:none; border:1px solid var(--line); border-radius:10px; padding:2px 16px; margin:.8em 0; background:var(--card);}
+  .eqnote{color:var(--muted); font-size:14px;}
+  @media (max-width:880px){
+    nav.toc{display:none;}
+    main{padding:22px 18px 90px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc" aria-label="目次">
+  <div class="lead">目次</div>
+  <a href="#intro">はじめに（前提と読み方）</a>
+  <h2>Part 1 — 分離の全体像</h2>
+  <a href="#overview">1. 何を最適化するのか</a>
+  <a href="#iso-vs-grad">2. アイソ vs グラジエント</a>
+  <h2>Part 2 — 保持の物理</h2>
+  <a href="#k">3. 保持係数 k と保持時間</a>
+  <a href="#vanthoff">4. 温度：ファントホッフ</a>
+  <a href="#lss">5. 溶媒：LSS モデル</a>
+  <a href="#combined">6. 統合式＝温度依存 LSS</a>
+  <h2>Part 3 — グラジエント理論</h2>
+  <a href="#grad-program">7. 勾配プログラムと t_D</a>
+  <a href="#grad-derive">8. 溶出式の導出（log の理由）</a>
+  <a href="#grad-b">9. 急峻度 b の意味</a>
+  <a href="#grad-assume">10. 前提と数値積分</a>
+  <h2>Part 4 — 幅と分離度</h2>
+  <a href="#width">11. ピーク幅とバンド圧縮</a>
+  <a href="#rs">12. 分離度 Rs とクロスオーバー</a>
+  <h2>Part 5 — 統計（2級の橋渡し）</h2>
+  <a href="#fit">13. 回帰＝最小二乗の一般化</a>
+  <a href="#fit-quality">14. R²・自由度・信頼区間</a>
+  <a href="#rs-ci">15. ばらつきの伝播と Rs 信頼区間</a>
+  <a href="#doe">16. 実験計画（DoE）</a>
+  <a href="#overfit">17. 過学習と AICc・交差検証</a>
+  <h2>Part 6 — 意思決定</h2>
+  <a href="#dspace">18. デザインスペースと最大余裕点</a>
+  <h2>付録</h2>
+  <a href="#symbols">記号一覧</a>
+  <a href="#glossary">用語対応表（統計⇔分析化学）</a>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="kicker">HPLC 条件最適化 · 理解ノート</div>
+  <h1>グラジエント分離モデルを理解するための知識</h1>
+  <p class="sub">10-gingerol を夾雑ピークから分ける「グラジエント溶出」を、物理モデルと統計の両輪で解説します。</p>
+</header>
+
+<section id="intro">
+  <p class="lead-para">このノートは、アイソクラティック（移動相組成を一定に保つ）分離から <strong>グラジエント（移動相の有機溶媒比 φ を時間とともに上げていく）</strong>分離へ最適化を移すために必要な知識を、一通りまとめたものです。</p>
+
+  <div class="box accent">
+    <span class="tag">前提レベル</span>
+    <p style="margin:.3em 0 0">説明の深さは <strong>統計検定2級の合格者</strong>を想定しています。つまり「最小二乗法・回帰・決定係数 \(R^2\)・残差・自由度・信頼区間・仮説検定・正規分布」は既知として、化学のモデルをそれらの言葉に翻訳しながら進めます。数式は使いますが、<strong>各記号は必ず説明</strong>します。分析化学の専門用語もその都度かみ砕きます。</p>
+  </div>
+
+  <p><strong>読み方の地図。</strong> Part 1 で「何を分けたいのか」を掴み、Part 2〜3 で保持時間を予測する物理モデル（ここがグラジエントの肝）、Part 4 で幅と分離度、Part 5 で「実測データからモデルの係数を決める統計」（＝あなたの得意分野との接続）、Part 6 で「どの条件を選ぶか」の意思決定、という流れです。急ぐなら §8（導出）と Part 5 が中心です。</p>
+</section>
+
+<h2 class="sec" id="overview">1. 何を最適化するのか</h2>
+<p>漢方の抽出液を HPLC（高速液体クロマトグラフィー）にかけると、成分ごとに<strong>出てくる時刻がずれる</strong>ので分離できます。狙いは、目的成分 <strong>10-gingerol</strong>（＝ TP, Target Peak）を、その前後に出る<strong>夾雑ピーク</strong>（IP1, IP2 = Interfering Peak）から、条件が多少ブレても<strong>安定して分けきる</strong>ことです。</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>略称</th><th>意味</th><th>役割</th></tr>
+  <tr><td class="sym">TP</td><td>Target Peak = 10-gingerol</td><td>定量したい目的ピーク</td></tr>
+  <tr><td class="sym">IP1 / IP2</td><td>Interfering Peak（夾雑）</td><td>TP の前後に出て邪魔をする</td></tr>
+</table>
+</div>
+
+<p>「どれだけ分かれているか」を測る指標が<strong>分離度 \(R_s\)</strong>（§12）で、目安は \(R_s \ge 1.5\)（ベースラインまで分離）、本プロジェクトは安全側に <strong>\(R_s \ge 2.0\)</strong> を合格基準にしています。さらに、単に「ある1点で分離できる」だけでなく、<strong>ブレに強い条件の“領域”</strong>を求めます。これを ICH Q8 ガイドラインでは<strong>デザインスペース</strong>と呼びます（§18）。</p>
+
+<div class="stat-bridge">
+  <span class="lbl">統計の言葉で言うと</span><br>
+  最終的にやりたいのは「温度 \(T\)・勾配時間 \(t_G\) といった<strong>説明変数</strong>から、分離度 \(R_s\) という<strong>目的変数</strong>を予測する回帰モデルを作り、\(R_s\) が基準を満たす説明変数の範囲を求める」こと。回帰の応答曲面（response surface）を描いて、合格領域を切り出す作業です。
+</div>
+
+<h2 class="sec" id="iso-vs-grad">2. アイソクラティック vs グラジエント</h2>
+<p><strong>アイソクラティック</strong>は移動相の組成 \(\varphi\)（ACN＝アセトニトリルの体積分率）を走行中ずっと一定に保ちます。シンプルですが、成分の極性の幅が広いと「早い成分は重なり、遅い成分はいつまでも出てこない」という板挟みが起きます。</p>
+<p><strong>グラジエント</strong>は \(\varphi\) を時間とともに上げていきます（例：40% → 70% を 10 分かけて）。有機溶媒が増えると保持が弱まるので、保持の強い成分も適度な時間で押し出せます。結果として、<strong>幅広い極性の成分を、そこそこ揃った幅で、現実的な時間内に</strong>分離できます。</p>
+
+<div class="box">
+  <span class="tag">この移行で「新しく必要になる」もの</span>
+  <ul style="margin:.4em 0 0">
+    <li><span class="sym">φ(t)</span> — 単一の数値ではなく<strong>時間の関数（勾配プログラム）</strong>になる（§7）</li>
+    <li><span class="sym">t_D</span> — <strong>ドウェル時間</strong>。装置がつくった勾配がカラムに届くまでの遅れ（装置固有の定数。1回測れば済む）（§7）</li>
+    <li>保持時間の計算が <span class="sym">t_R=(V_m/F)(1+k)</span> から<strong>グラジエント溶出の積分式</strong>に変わる（§8）</li>
+    <li>ピーク幅は<strong>バンド圧縮</strong>で揃う傾向になり、幅モデルも作り直す（§11）</li>
+  </ul>
+</div>
+
+<div class="box ok">
+  <span class="tag">逆に「そのまま引き継げる」もの</span>
+  <ul style="margin:.4em 0 0">
+    <li>保持係数 \(k\) の係数モデル（§6）— 実はアイソの式が<strong>温度依存 LSS そのもの</strong></li>
+    <li>分離度 \(R_s\) をピーク同一性で定義してクロスオーバーに対応する考え方（§12）</li>
+    <li>デザインスペース＋最大余裕点（ICH Q8）の枠組み（§18）</li>
+    <li>実測から係数を決める統計（非線形最小二乗・信頼区間・DoE）（Part 5）</li>
+  </ul>
+</div>
+
+<h2 class="sec" id="k">3. 保持係数 k と保持時間</h2>
+<p>ピークが「どれだけ長くカラムに引き止められるか」を表す無次元量が<strong>保持係数 \(k\)</strong> です。定義は</p>
+$$ k=\frac{t_R-t_0}{t_0},\qquad t_R=t_0\,(1+k),\qquad t_0=\frac{V_m}{F} $$
+<ul>
+  <li>\(t_R\)：保持時間 [min]（ピークが出てくる時刻）</li>
+  <li>\(t_0\)：ボイド時間 [min]（保持されない物質が出る時刻＝カラムを素通りする時間）</li>
+  <li>\(V_m\)：カラム死容量 [mL]（カラム内の移動相の体積）、\(F\)：流速 [mL/min]</li>
+</ul>
+<p>アイソクラティックでは \(k\) が走行中一定なので、\(t_R\) は上の式で<strong>一発で</strong>計算できます。ここがグラジエントとの決定的な違いです（グラジエントでは \(k\) が時々刻々変わる）。</p>
+<p>問題は「\(k\) が温度 \(T\) と溶媒比 \(\varphi\) でどう決まるか」。これを次の2つの物理法則で組み立てます。</p>
+
+<h2 class="sec" id="vanthoff">4. 温度の効き方：ファントホッフの式</h2>
+<p>保持は化学平衡（溶質が移動相と固定相に分配される）なので、<strong>ファントホッフの式</strong>（平衡定数の温度依存）に従います：</p>
+$$ \ln k = A + \frac{B}{T_K} $$
+<ul>
+  <li>\(T_K\)：絶対温度 [K]（＝摂氏 \(+273.15\)）。温度は必ず<strong>絶対温度の逆数</strong>で入るのがポイント</li>
+  <li>\(B=-\Delta H/R\)（\(\Delta H\)＝分配のエンタルピー変化、\(R\)＝気体定数）。多くの場合 \(B>0\) で、<strong>低温ほど保持が強く</strong>なる</li>
+  <li>\(A\) は切片（エントロピー項と相比をまとめたもの）</li>
+</ul>
+<div class="stat-bridge">
+  <span class="lbl">統計の言葉で言うと</span><br>
+  \(\ln k\) を応答、\(1/T_K\) を説明変数にした<strong>単回帰</strong>です。「\(\ln k\) を \(1/T_K\) に対してプロットすると直線」というのがファントホッフプロット。傾きが \(B\)、切片が \(A\)。
+</div>
+
+<h2 class="sec" id="lss">5. 溶媒の効き方：LSS モデル</h2>
+<p>有機溶媒比 \(\varphi\) を上げると保持は<strong>指数関数的に</strong>弱まります。これを一次近似したのが<strong>線形溶媒強度（LSS: Linear Solvent Strength）モデル</strong>です：</p>
+$$ \ln k = \ln k_w - S\,\varphi $$
+<ul>
+  <li>\(k_w\)：\(\varphi=0\)（純水）での仮想的な \(k\)。保持の「強さの基準」</li>
+  <li>\(S\)：<strong>溶媒強度パラメータ</strong>。\(\varphi\) を 1 上げたとき \(\ln k\) がどれだけ下がるか。<strong>成分ごとに違う</strong>（ここがクロスオーバーの源）</li>
+  <li>\(\varphi\)：ACN 体積分率（\(0\!\sim\!1\)、例 \(0.45=45\%\)）</li>
+</ul>
+<div class="stat-bridge">
+  <span class="lbl">統計の言葉で言うと</span><br>
+  これも \(\ln k\) を \(\varphi\) に回帰した<strong>単回帰</strong>。傾き \(-S\)、切片 \(\ln k_w\)。傾き \(S\) がピークごとに違うと、\(\varphi\) を変えたとき<strong>直線が交差</strong>し、溶出順が入れ替わります（＝クロスオーバー、§12）。
+</div>
+
+<h2 class="sec" id="combined">6. 統合式は「温度依存 LSS」そのもの</h2>
+<p>温度と溶媒を同時に扱うため、両者を足し、必要なら曲がり（2次）と交互作用を加えた式を各ピークに当てます。これが本プロジェクトの中核モデルです：</p>
+$$ \ln k = a + \frac{b}{T_K} + c\,\varphi + d\,\varphi^{2} + e\,\frac{\varphi}{T_K} $$
+<div class="tablewrap">
+<table>
+  <tr><th>係数</th><th>項</th><th>意味</th></tr>
+  <tr><td class="sym">a</td><td>切片</td><td>基準の保持</td></tr>
+  <tr><td class="sym">b</td><td>\(b/T_K\)</td><td>温度項（ファントホッフ）。\(b>0\) で低温ほど高保持</td></tr>
+  <tr><td class="sym">c</td><td>\(c\varphi\)</td><td>溶媒1次（LSS 本体）。\(c\lt 0\) で ACN 増→低保持</td></tr>
+  <tr><td class="sym">d</td><td>\(d\varphi^2\)</td><td>溶媒の曲がり補正（不要なら 0）</td></tr>
+  <tr><td class="sym">e</td><td>\(e\,\varphi/T_K\)</td><td>温度×溶媒の交互作用（\(S\) が温度で変わる効果）</td></tr>
+</table>
+</div>
+
+<div class="box accent">
+  <span class="tag">最重要の気づき</span>
+  <p style="margin:.3em 0 .4em">この式を \(\varphi\) について整理し直すと——</p>
+  $$ \ln k = \underbrace{\Big(a+\tfrac{b}{T_K}\Big)}_{\displaystyle \ln k_w(T)} \;+\; \underbrace{\Big(c+\tfrac{e}{T_K}\Big)}_{\displaystyle -\,S(T)}\varphi \;+\; d\,\varphi^{2} $$
+  <p style="margin:.4em 0 0">——となり、これは <strong>温度依存の LSS モデル</strong>（\(\ln k=\ln k_w - S\varphi\)、ただし \(\ln k_w\) と \(S\) が温度の関数）そのものです。<br>
+  つまり <strong>アイソで使っていた保持の係数（\(a,b,c,d,e\)）は、グラジエントでもそのまま流用できます。</strong>変わるのは「\(k\) から \(t_R\) を計算する方法」だけ（次章）。</p>
+</div>
+
+<h2 class="sec" id="grad-program">7. 勾配プログラムとドウェル時間</h2>
+<p>もっとも単純な<strong>直線グラジエント</strong>は、\(\varphi\) を時間に対して直線で上げます：</p>
+$$ \varphi(t)=\varphi_0+\frac{\Delta\varphi}{t_G}\,t $$
+<ul>
+  <li>\(\varphi_0\)：初期組成、\(\Delta\varphi\)：振り幅（＝終点\(-\)始点）、\(t_G\)：<strong>グラジエント時間</strong>（勾配を \(\varphi_0\) から終点まで動かす時間）</li>
+</ul>
+<p>ここで装置固有の遅れが入ります。ポンプで作った勾配は、配管やミキサーを通ってから<strong>カラム入口に届く</strong>ため、遅延があります。この遅れを<strong>ドウェル時間 \(t_D\)</strong>（＝ドウェル容量 \(V_D\) を流速で割ったもの、\(t_D=V_D/F\)）と呼びます。<strong>装置が決まれば定数</strong>なので、不保持物質＋ダミー勾配で1回測れば以後使い回せます。</p>
+
+<div class="box warn">
+  <span class="tag">なぜ最適化する因子が「t_G × T」なのか</span>
+  <p style="margin:.3em 0 0">\(t_G\)（勾配の急峻さ）と \(T\)（温度）の2つを振るのが、グラジエント法開発の定石（DryLab 方式）です。理由は §16 で述べますが、要は「\(t_G\) を変えると各成分が溶出する瞬間の \(\varphi\) が動くので、<strong>\(\varphi\) を直接振らなくても \(S\) と \(k_w\) が推定できる</strong>」から。初期 \(\varphi_0\)・終点は全域スキャンに固定します。</p>
+</div>
+
+<h2 class="sec" id="grad-derive">8. グラジエント溶出式の導出 —— なぜ log になるのか</h2>
+<p>ここが理論の心臓部です。「保持が指数で効く × 勾配が直線 → \(1/k\) が指数で増える → その積分を解くと対数」という流れを1行ずつ追います。</p>
+
+<h4>出発点：基礎方程式（進んだ割合の合計＝1）</h4>
+<p>溶質はカラム内を少しずつ進みます。カラム全長を 1 として位置を \(z\)（0=入口, 1=出口）とすると、進む速さは保持が強い（\(k\) 大）ほど遅く：</p>
+$$ \frac{dz}{dt}=\frac{1}{t_0\,k} $$
+<p class="eqnote">※ 本来は \(1/[t_0(1+k)]\) ですが、グラジエントでは溶質は \(\varphi\) が上がるまで入口付近でほぼ止まって待つ（＝その間 \(k\) が大きい）ので、慣例的に \(1/(t_0 k)\) と近似します。これが古典式の前提の一つ。</p>
+<p>出口 \(z=1\) に着いた時刻が溶出。積分すると<strong>基礎方程式</strong>：</p>
+$$ \int_{0}^{t'} \frac{dt}{t_0\,k[\varphi(t)]}=1,\qquad t'=t_R-t_0-t_D $$
+<p>\(t'\) は「実際に勾配を浴びながら移動している時間」。ボイド \(t_0\) とドウェル \(t_D\) は後で足し戻します。</p>
+
+<h4>ステップ1：k を時間の式に直す</h4>
+<p>LSS \(k=k_w e^{-S\varphi}\) に直線勾配 \(\varphi(t)=\varphi_0+(\Delta\varphi/t_G)t\) を代入：</p>
+$$ k(t)=k_w e^{-S\varphi_0}\,e^{-S(\Delta\varphi/t_G)t}=k_0\,e^{-\beta t} $$
+<ul>
+  <li>\(k_0=k_w e^{-S\varphi_0}\)：<strong>初期 \(\varphi_0\) での \(k\)</strong>（スタート時の保持）</li>
+  <li>\(\beta=S\,\Delta\varphi/t_G\)：\(\varphi\) 上昇に伴う \(k\) の減衰率 [1/min]</li>
+</ul>
+<p><strong>核心：</strong>\(\varphi\) が直線で上がる × \(k\) が \(\varphi\) に指数で効く → \(k\) は時間に対し<strong>指数関数的に減る</strong>。ゆえに \(1/k\) は指数関数的に<strong>増える</strong>。</p>
+
+<h4>ステップ2：指数関数を積分する → log が出る</h4>
+<p>\(1/k(t)=(1/k_0)e^{+\beta t}\) を基礎方程式へ：</p>
+$$ \int_0^{t'}\frac{1}{t_0 k_0}e^{\beta t}\,dt=1 \;\Longrightarrow\; \frac{1}{t_0 k_0 \beta}\big(e^{\beta t'}-1\big)=1 $$
+<p>\(e^{\beta t'}\) について解き、両辺の自然対数をとる（<strong>指数を解くと必ず対数になる</strong>）：</p>
+$$ e^{\beta t'}=1+t_0 k_0 \beta \;\Longrightarrow\; t'=\frac{1}{\beta}\ln\!\big(1+t_0 k_0 \beta\big) $$
+
+<h4>ステップ3：急峻度 b でまとめる</h4>
+<p>無次元の<strong>グラジエント急峻度</strong> \(b=t_0\beta=t_0 S\,\Delta\varphi/t_G\) を定義すると \(t_0 k_0 \beta=k_0 b\) なので、足し戻して<strong>最終形</strong>：</p>
+<div class="box accent">
+$$ \boxed{\,t_R=\frac{t_0}{b}\,\ln\!\big(1+k_0\,b\big)+t_0+t_D\,}$$
+$$ b=\frac{t_0\,S\,\Delta\varphi}{t_G},\qquad k_0=k_w\,e^{-S\varphi_0} $$
+</div>
+<p>これが「なぜ log の閉じた式になるか」の答えです。<strong>指数で減る \(k\) → \(1/k\) が指数で増える → その積分の解が対数</strong>。</p>
+
+<div class="box">
+  <span class="tag">教科書の「2.303」はどこから来る？</span>
+  <p style="margin:.3em 0 0">多くの教科書は \(S\) を<strong>常用対数</strong>で定義（\(\log_{10}k=\log_{10}k_w-S\varphi\)）するため、\(t_R=\frac{t_0}{b}\log_{10}(2.303\,k_0 b+1)+t_0+t_D\) と <strong>2.303（\(=\ln 10\)）</strong>が現れます。これは底の換算係数にすぎません。<strong>本プロジェクトは \(\ln k\)（自然対数）で統一</strong>しているので、2.303 は不要で上のきれいな形になり、アイソの係数 \((a,b,c,e)\) とそのまま整合します。</p>
+</div>
+
+<h2 class="sec" id="grad-b">9. 急峻度 b の意味（直感）</h2>
+<p>\(b=t_0 S\Delta\varphi/t_G\) は「勾配がどれだけ急か」を表す無次元量で、グラジエント挙動を1つに束ねる主役です。</p>
+<ul>
+  <li><strong>\(b\) 大（急な勾配・短い \(t_G\)）</strong>：全成分が早く押し出され、\(t_R\) の差が縮む → 分離しにくいが速い</li>
+  <li><strong>\(b\) 小（緩い勾配・長い \(t_G\)）</strong>：成分が広がって出る → 分離しやすいが遅い</li>
+</ul>
+<p>目安として \(b\approx 0.2\!\sim\!0.4\) 付近が分離と時間のバランスが良いとされます。<strong>\(t_G\) を振るということは \(b\) を振ること</strong>で、これが最適化の主軸になります。</p>
+
+<h2 class="sec" id="grad-assume">10. 前提と数値積分（実装の分岐点）</h2>
+<p>§8 の閉じた式には次の前提が埋まっています：</p>
+<ol>
+  <li>\(1/(t_0 k)\) 近似（\(k\) が十分大きい）</li>
+  <li>\(S\) が走行中<strong>一定</strong>（＝\(\ln k\) が \(\varphi\) に直線。曲がり \(d\varphi^2\) を入れると閉形式は崩れる）</li>
+  <li><strong>直線・単一勾配</strong>（多段グラジエントは区分ごと）</li>
+</ol>
+<div class="box">
+  <p style="margin:0"><strong>実装の指針：</strong>基礎方程式 \(\int dt/(t_0 k)=1\) を<strong>数値積分</strong>で解けば、\(d\varphi^2\) の曲がりも・多段勾配も・ドウェルの扱いも一般化できます。閉じた式は「特別な場合のサニティチェック（検算）」として持っておくのが堅牢です。この「閉形式 vs 数値積分」は次の設計判断（φ² を残すか）で確定します。</p>
+</div>
+
+<h2 class="sec" id="width">11. ピーク幅とバンド圧縮</h2>
+<p>分離度を計算するにはピークの<strong>幅</strong>も要ります。幅は理論段数 \(N\)（カラム効率）で決まります：</p>
+$$ N=5.54\left(\frac{t_R}{W_h}\right)^2,\qquad W_h=\sqrt{8\ln 2}\;\frac{t_R}{\sqrt N},\qquad W_b=\frac{4\,t_R}{\sqrt N}\approx 1.699\,W_h $$
+<ul>
+  <li>\(W_h\)：半値幅 [min]（ピーク高さ半分での幅）、\(W_b\)：ベースライン幅 [min]（\(=4\sigma\)、\(R_s\) の式で使う）</li>
+  <li>\(N\)：理論段数（大きいほど鋭いピーク）、\(5.54=8\ln 2\)</li>
+</ul>
+<p><strong>アイソ</strong>では実データ上 \(N\) がほぼ一定だったので、幅は保持時間に比例（\(W_h=w_{c0}+w_{c1}t_R\)）で十分でした。<br>
+<strong>グラジエント</strong>では<strong>バンド圧縮</strong>という現象が効きます。溶質バンドの<strong>後端</strong>は先端より高い \(\varphi\)（より弱い保持）を浴びるので、後端が先端に追いつき、<strong>バンドが縮んで幅が揃う</strong>のです。このため幅モデルはアイソとは別式（溶出時の実効 \(k\) と圧縮係数を含む形）で組み直します。詳細は次の設計判断（幅モデル）で詰めます。</p>
+<div class="stat-bridge">
+  <span class="lbl">統計の言葉で言うと</span><br>
+  ピークを<strong>正規分布（ガウス形）</strong>で近似しています。\(\sigma\) が標準偏差、\(W_b=4\sigma\)（左右 \(\pm 2\sigma\)）、半値幅 \(W_h=2\sqrt{2\ln 2}\,\sigma\)。「幅＝ばらつきの尺度」と読み替えられます。
+</div>
+
+<h2 class="sec" id="rs">12. 分離度 Rs とクロスオーバー対応</h2>
+<p>隣り合う2ピークの分離の良さは<strong>分離度 \(R_s\)</strong> で測ります：</p>
+$$ R_s=\frac{2\,\lvert t_{R,a}-t_{R,b}\rvert}{W_{b,a}+W_{b,b}} $$
+<p>分子は<strong>ピーク中心の距離</strong>、分母は<strong>幅の和</strong>。「離れているほど・細いほど」よく分かれます。本プロジェクトは目的ピーク TP と各夾雑の間で計算し、<strong>その最小値</strong>を最適化の目標にします：</p>
+$$ R_{s1}=R_s(\text{TP},\text{IP1}),\quad R_{s2}=R_s(\text{TP},\text{IP2}),\quad \text{目標}= \min\{R_{s1},R_{s2}\}\ge 2.0 $$
+<div class="box ok">
+  <span class="tag">クロスオーバー対応の工夫</span>
+  <p style="margin:.3em 0 0">\(R_s\) を<strong>溶出順ではなく“化合物の同一性”</strong>で定義し、分子に<strong>絶対値 \(\lvert\cdot\rvert\)</strong> を使っています。こうすると、条件を変えて溶出順が入れ替わっても（§5 の直線交差＝クロスオーバー）、\(R_s\) は常に正しく「TP と IP1 の距離」を測り続けます。グラジエントでも同じ定義がそのまま使えます。</p>
+</div>
+
+<h2 class="sec" id="fit">13. 回帰＝最小二乗法の一般化</h2>
+<p>ここから Part 5、あなたの得意分野との接続です。<strong>「実測データからモデルの係数をどう決めるか」</strong>を統計の言葉で整理します。</p>
+<p>2級で学ぶ<strong>最小二乗法</strong>は、単回帰 \(y=\beta_0+\beta_1 x\) で「予測値と実測値のズレ（残差）の二乗和を最小にする \(\beta\) を選ぶ」手続きでした。グラジエントのフィットも<strong>思想は完全に同じ</strong>です。違いは「モデルが非線形」なだけ：</p>
+$$ \min_{\theta}\;\sum_{i=1}^{n}\Big(\,t_{R,i}^{\text{実測}}-t_{R,i}^{\text{モデル}}(\theta)\,\Big)^2 $$
+<ul>
+  <li>応答（目的変数）：各実験で測った保持時間 \(t_{R,i}^{\text{実測}}\)</li>
+  <li>予測：§8 のグラジエント溶出式が返す \(t_R\)（内部で §6 の係数を使う）</li>
+  <li>推定するパラメータ \(\theta\)：保持係数モデルの \(a,b,c,d,e\)（＝ \(\ln k_w, S\) を決める係数）</li>
+</ul>
+<div class="box">
+  <p style="margin:0"><strong>なぜ「非線形」最小二乗か。</strong> \(t_R\) は係数について直線ではなく、\(\ln\) や \(e^{-S\varphi}\) を通しています。だから正規方程式を一発で解く代わりに、<strong>反復計算</strong>（Gauss–Newton / Levenberg–Marquardt 法：良さそうな係数から少しずつ改善）で残差二乗和の谷を下ります。2級の単回帰が「手で解ける最小二乗」、これは「コンピュータで反復して解く最小二乗」——目的関数は同じ二乗和です。</p>
+</div>
+<div class="stat-bridge">
+  <span class="lbl">アイソとの違い</span><br>
+  アイソは各実験から \(k\) が直接測れたので、\(\ln k=a+b/T_K+\dots\) という<strong>線形重回帰</strong>で係数が一発で出ました。グラジエントは \(t_R\) から \(k\) を直接取り出せない（走行中に \(\varphi\) が動いた）ので、溶出式を通した<strong>非線形</strong>フィットになる——これが統計的な唯一の本質的差です。
+</div>
+
+<h2 class="sec" id="fit-quality">14. あてはまりの良さ：R²・自由度・信頼区間</h2>
+<p>フィットができたら、2級でおなじみの指標で品質を確認します。</p>
+<h4>決定係数 R²</h4>
+$$ R^2=1-\frac{\text{SS}_{\text{res}}}{\text{SS}_{\text{tot}}}=1-\frac{\sum_i(y_i-\hat y_i)^2}{\sum_i(y_i-\bar y)^2} $$
+<p>「モデルが応答の変動をどれだけ説明できたか」（0〜1、1に近いほど良い）。\(y_i\)＝実測、\(\hat y_i\)＝予測、\(\bar y\)＝平均。</p>
+<h4>自由度と残差標準誤差</h4>
+<p>観測数を \(n\)、推定パラメータ数を \(p\) とすると、残差の自由度は \(df=n-p\)。誤差の大きさ（予測がどれくらいズレるか）は残差標準誤差</p>
+$$ s=\sqrt{\frac{\text{SS}_{\text{res}}}{n-p}} $$
+<p>で測ります。<strong>パラメータを増やすほど \(n-p\) が減り、推定が不安定になる</strong>——この綱引きが §17 の過学習の話につながります。</p>
+<h4>係数の信頼区間</h4>
+<p>各係数 \(\hat\theta_j\) には標準誤差 \(SE(\hat\theta_j)\) があり（誤差分散 × 情報行列の逆行列 \(\hat\sigma^2 (J^\top J)^{-1}\) の対角から得る。\(J\) はモデルの係数に関する偏微分＝ヤコビ行列）、95% 信頼区間は</p>
+$$ \hat\theta_j \pm t_{\,df,\,0.975}\cdot SE(\hat\theta_j) $$
+<p>2級の「母平均の区間推定」と同じ構造（点推定 ± \(t\) 値 × 標準誤差）です。区間が 0 をまたぐ係数は「その項は要らないかも」のサイン——回帰係数の \(t\) 検定と同じ考え方です。</p>
+
+<h2 class="sec" id="rs-ci">15. ばらつきの伝播と Rs の信頼区間</h2>
+<p>最終的に知りたいのは係数そのものより「<strong>ある条件での \(R_s\) がどれくらい信頼できるか</strong>」です。係数の不確かさが \(R_s\) にどう伝わるかを求めます。\(R_s\) は係数の複雑な非線形関数なので、公式で誤差伝播するより<strong>モンテカルロ法</strong>が簡単で正確です：</p>
+<ol>
+  <li>フィットで得た<strong>係数の推定値（平均ベクトル）と共分散行列</strong>を用意する</li>
+  <li>そこから係数を<strong>多変量正規分布で乱数生成</strong>（例：2000 セット）</li>
+  <li>各セットで \(R_s\) を計算 → \(R_s\) の<strong>分布</strong>が得られる</li>
+  <li>その 2.5% 〜 97.5% 点が \(R_s\) の 95% 信頼区間</li>
+</ol>
+<div class="stat-bridge">
+  <span class="lbl">2級との接続</span><br>
+  これは<strong>ブートストラップ／シミュレーションによる区間推定</strong>の発想です。「解析的に解けない統計量の分布は、乱数で作ってしまえばよい」。実装では係数の共分散から引くので、係数間の相関（多重共線）も自動的に正しく伝わります。デザインスペースの合否を「点推定の \(R_s\ge 2\)」でなく「<strong>信頼区間の下限が 2 を超える</strong>」で判定すれば、より安全側の運転点が選べます。
+</div>
+
+<h2 class="sec" id="doe">16. 実験計画（DoE）—— なぜ少ない本数で足りるか</h2>
+<p>係数を精度よく推定するには「どの条件で実験するか」の設計が効きます。2級の実験計画の考え方が生きる場面です。</p>
+<h4>アイソの場合（参考）</h4>
+<p>\(T,\varphi,F\) の3因子を<strong>中心複合計画（CCD）</strong>で振っていました：頂点 \(2^3=8\) ＋ 軸上点 6 ＋ 中心点 6 ＝ 20 本。中心点の反復で<strong>純誤差</strong>（同じ条件のばらつき）を測り、2次曲面を当てるのに教科書的に最適なサイズです。</p>
+<h4>グラジエントの場合（t_G × T）</h4>
+<p>グラジエントは発想が変わり、<strong>スカウティング（下見）実験</strong>が主役です。ポイントは：</p>
+<div class="box accent">
+  <p style="margin:.2em 0"><strong>勾配時間 \(t_G\) を2水準（例：短・長）走らせるだけで、各ピークの \(S\) と \(k_w\) が解ける。</strong></p>
+  <p style="margin:.4em 0 0">理由：\(t_G\) を変えると各成分が<strong>溶出する瞬間の \(\varphi\) が変わる</strong>ので、実質的に「異なる \(\varphi\) での保持」を2点測ったことになり、\(\ln k=\ln k_w-S\varphi\) の直線（未知数2つ：\(\ln k_w, S\)）が1本決まります。温度も2水準にすれば \(T\) 依存（\(b,e\)）も入り、<strong>\(2\times 2=4\) 本＋中心点</strong>程度でモデルが立ちます。CCD の 20 本より大幅に少ない。</p>
+</div>
+<h4>自由度の数え方（本数の妥当性）</h4>
+<p>1回の注入で<strong>3ピーク全部</strong>の \(t_R\) が測れるので、自由度は「総本数」でなく<strong>モデルごと</strong>に数えます。保持モデルは独立に3本（IP1・TP・IP2）。各モデルが全実験本数を観測点として使えるので、少数の実験でも \(df=n-p>0\) を確保できます。</p>
+<h4>D 最適追加とブロッキング</h4>
+<ul>
+  <li><strong>D 最適計画</strong>：情報行列の行列式 \(\det(X^\top X)\) を最大化する追加点を選ぶ手法。「係数の信頼区間が一番狭くなる条件」を狙い打ちします（情報の薄い所を埋める）。</li>
+  <li><strong>ブロッキング（日間差の補正）</strong>：別日に実験すると移動相ロット・室温などで系統的にズレます。モデルに<strong>ダミー変数</strong> \(\delta\cdot\text{day}\) を足して補正する——2級でいう<strong>共変量調整（層別）</strong>そのものです。各日に中心点を入れてズレ量を測ります。</li>
+</ul>
+
+<h2 class="sec" id="overfit">17. 過学習と AICc・交差検証</h2>
+<p>「項を増やせば \(R^2\) は必ず上がる」——2級で習う通りです。でもそれは<strong>そのデータに合わせすぎ（過学習）</strong>で、新しい条件での予測は悪化します。項の取捨は次の道具で判断します：</p>
+<ul>
+  <li><strong>自由度調整済み \(R^2\)</strong>：項数のペナルティ込み。素の \(R^2\) の水増しを補正。</li>
+  <li><strong>AICc</strong>（小標本補正版の赤池情報量規準）：「あてはまりの良さ」と「パラメータの少なさ」を天秤にかけ、小さいほど良いモデル。標本が小さいときは AIC でなく AICc を使う。</li>
+  <li><strong>交差検証（LOO: Leave-One-Out）</strong>：1点を抜いて残りで作ったモデルでその点を予測——を全点で回し、<strong>“未知データへの予測力”</strong>を直接測る。\(Q^2\) はその \(R^2\) 版。</li>
+</ul>
+<div class="box warn">
+  <span class="tag">このプロジェクトの教訓</span>
+  <p style="margin:.3em 0 0">「理論的に効くはず」でも、<strong>データ（AICc・\(Q^2\)・当てはまり不足検定）が支持する項だけ残す</strong>のが方針です。実際、アイソでは幅モデルを理論的に凝った式から「\(W_h=w_{c0}+w_{c1}t_R\)」へ<strong>簡素化</strong>した経緯があります（狭い \(F\) 範囲では余分な項の効果が検出できず過学習になるため）。グラジエントの幅・保持モデルでも同じ規律で項を選びます。</p>
+</div>
+
+<h2 class="sec" id="dspace">18. デザインスペースと最大余裕点（ICH Q8）</h2>
+<p>モデルができたら、\(t_G\times T\) の平面（アイソでは \(T,\varphi,F\) の3次元）を細かい格子で評価し、<strong>合格条件を満たす領域</strong>を切り出します：</p>
+$$ \min\{R_{s1},R_{s2}\}\ge 2.0 \quad\text{かつ}\quad t_R(\text{TP})\le 7.5\ \text{min} $$
+<p>この合格領域が<strong>デザインスペース</strong>。その中から<strong>「境界（崖）から最も遠い点」＝最大余裕点</strong>を推奨運転点に選びます。崖は2種類：</p>
+<ol>
+  <li>合格条件を破る境界（\(R_s\) 不足・時間超過）</li>
+  <li>探索範囲の端（そこから外れると<strong>未検証域への外挿</strong>になるので、これも崖として扱う）</li>
+</ol>
+<p>各因子を範囲幅で 0〜1 に正規化し、崖までの最短距離が最大の点を選びます。<strong>条件が多少ブレても合格が保たれる</strong>、最もロバストな運転点です（ICH Q8 の思想）。</p>
+<div class="stat-bridge">
+  <span class="lbl">統計の言葉で言うと</span><br>
+  応答曲面（\(R_s\) の回帰予測面）の等高線 \(R_s=2\) を描き、その内側で境界から最遠の内点を探す——<strong>応答曲面法（RSM）＋制約付き最適化</strong>です。§15 の信頼区間を使えば「予測の下限で合格する領域」として、より保守的にデザインスペースを定義できます。
+</div>
+
+<hr>
+
+<h2 class="sec" id="symbols">記号一覧</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>記号</th><th>意味</th><th>単位</th></tr>
+  <tr><td class="sym">t_R</td><td>保持時間（ピークが出る時刻）</td><td>min</td></tr>
+  <tr><td class="sym">t_0</td><td>ボイド時間（\(=V_m/F\)）</td><td>min</td></tr>
+  <tr><td class="sym">t_D</td><td>ドウェル時間（勾配がカラムに届く遅れ）</td><td>min</td></tr>
+  <tr><td class="sym">t_G</td><td>グラジエント時間（勾配を動かす時間）</td><td>min</td></tr>
+  <tr><td class="sym">k</td><td>保持係数（無次元）</td><td>—</td></tr>
+  <tr><td class="sym">k_w</td><td>φ=0 での仮想 k（保持の基準）</td><td>—</td></tr>
+  <tr><td class="sym">k_0</td><td>初期 φ₀ での k</td><td>—</td></tr>
+  <tr><td class="sym">S</td><td>溶媒強度パラメータ（φ に対する ln k の傾き）</td><td>—</td></tr>
+  <tr><td class="sym">φ, φ₀, Δφ</td><td>ACN 体積分率／初期値／振り幅</td><td>—</td></tr>
+  <tr><td class="sym">T, T_K</td><td>温度／絶対温度（\(T_K=T+273.15\)）</td><td>℃ / K</td></tr>
+  <tr><td class="sym">F</td><td>流速</td><td>mL/min</td></tr>
+  <tr><td class="sym">V_m, V_D</td><td>カラム死容量／ドウェル容量</td><td>mL</td></tr>
+  <tr><td class="sym">b</td><td>グラジエント急峻度（\(=t_0 S\Delta\varphi/t_G\)）</td><td>—</td></tr>
+  <tr><td class="sym">N</td><td>理論段数（カラム効率）</td><td>—</td></tr>
+  <tr><td class="sym">W_h, W_b</td><td>半値幅／ベースライン幅（\(=4\sigma\)）</td><td>min</td></tr>
+  <tr><td class="sym">R_s</td><td>分離度</td><td>—</td></tr>
+  <tr><td class="sym">a,b,c,d,e</td><td>保持係数モデルの係数（§6）</td><td>—</td></tr>
+</table>
+</div>
+
+<h2 class="sec" id="glossary">用語対応表（統計 ⇔ 分析化学）</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>統計（2級）の言葉</th><th>この問題での中身</th></tr>
+  <tr><td>目的変数 / 応答</td><td>保持時間 \(t_R\)、最終的には分離度 \(R_s\)</td></tr>
+  <tr><td>説明変数</td><td>グラジエント時間 \(t_G\)、温度 \(T\)（アイソでは \(T,\varphi,F\)）</td></tr>
+  <tr><td>単回帰</td><td>ファントホッフプロット（\(\ln k\) vs \(1/T_K\)）、LSS（\(\ln k\) vs \(\varphi\)）</td></tr>
+  <tr><td>重回帰</td><td>アイソの保持フィット（\(\ln k\) を \(1/T_K,\varphi,\varphi^2,\dots\) に回帰）</td></tr>
+  <tr><td>非線形最小二乗</td><td>グラジエントの \(t_R\) フィット（溶出式を通す）</td></tr>
+  <tr><td>決定係数 \(R^2\) / 自由度調整 \(R^2\)</td><td>保持・幅モデルのあてはまり評価</td></tr>
+  <tr><td>信頼区間（点推定±t×SE）</td><td>係数の区間、および \(R_s\) の信頼区間（モンテカルロ）</td></tr>
+  <tr><td>共変量調整 / 層別</td><td>日間差のブロッキング（\(\delta\cdot\text{day}\)）</td></tr>
+  <tr><td>実験計画</td><td>CCD・D 最適・スカウティング（\(t_G\times T\)）</td></tr>
+  <tr><td>モデル選択（AIC 等）</td><td>項の取捨（AICc・LOO \(Q^2\)・当てはまり不足）</td></tr>
+  <tr><td>応答曲面法（RSM）</td><td>デザインスペースの切り出しと最大余裕点</td></tr>
+  <tr><td>ブートストラップ / シミュレーション</td><td>係数を多変量正規から引いて \(R_s\) 分布を作る</td></tr>
+</table>
+</div>
+
+<p class="foot">
+  HPLC 条件最適化プロジェクト · グラジエント分離モデル 理解ノート<br>
+  対象レベル：統計検定2級合格者。物理モデル（保持＝ファントホッフ×LSS、溶出＝グラジエント積分、幅＝バンド圧縮）と統計（非線形最小二乗・信頼区間・DoE・RSM）の橋渡しを目的としています。
+</p>
+
+</main>
+</div>
+</body>
+</html>
