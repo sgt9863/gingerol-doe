@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="アイソクラティック保持回帰モデルの構築理論">
+<title>アイソクラティック保持回帰モデルの構築</title>
+<style>
+  :root{
+    --paper:#f7f9fa; --panel:#ffffff; --ink:#16232b; --muted:#5c6f78;
+    --line:rgba(20,60,70,.14); --accent:#0d9488; --accent2:#0891b2;
+    --eqbg:rgba(13,148,136,.055); --notebg:rgba(13,148,136,.045);
+    --peak-tp:#0d9488; --peak-ip:#9db0b8;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    --mono:"SF Mono","JetBrains Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0e1518; --panel:#141d21; --ink:#e6edf0; --muted:#93a6ae;
+      --line:rgba(150,180,190,.16); --accent:#2dd4bf; --accent2:#38bdf8;
+      --eqbg:rgba(45,212,191,.07); --notebg:rgba(45,212,191,.05);
+      --peak-tp:#2dd4bf; --peak-ip:#5f7078;
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#f7f9fa; --panel:#ffffff; --ink:#16232b; --muted:#5c6f78;
+    --line:rgba(20,60,70,.14); --accent:#0d9488; --accent2:#0891b2;
+    --eqbg:rgba(13,148,136,.055); --notebg:rgba(13,148,136,.045);
+    --peak-tp:#0d9488; --peak-ip:#9db0b8;
+  }
+  :root[data-theme="dark"]{
+    --paper:#0e1518; --panel:#141d21; --ink:#e6edf0; --muted:#93a6ae;
+    --line:rgba(150,180,190,.16); --accent:#2dd4bf; --accent2:#38bdf8;
+    --eqbg:rgba(45,212,191,.07); --notebg:rgba(45,212,191,.05);
+    --peak-tp:#2dd4bf; --peak-ip:#5f7078;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0}
+  .wrap{background:var(--paper); color:var(--ink); font-family:var(--serif);
+    line-height:1.75; -webkit-font-smoothing:antialiased;}
+  .col{max-width:760px; margin:0 auto; padding:0 1.4rem;}
+
+  /* ── header ── */
+  header{border-bottom:1px solid var(--line); padding:2.4rem 0 1.6rem;}
+  .eyebrow{font-family:var(--sans); font-size:.72rem; font-weight:700; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 .7rem;}
+  h1{font-family:var(--sans); font-weight:680; font-size:clamp(1.7rem,4.6vw,2.5rem);
+    line-height:1.12; letter-spacing:-.018em; margin:0; text-wrap:balance;}
+  .lede{color:var(--muted); font-size:1.05rem; margin:.7rem 0 1.4rem; max-width:60ch;}
+  .chroma{width:100%; height:150px; display:block;}
+  .chroma text{font-family:var(--mono); font-size:12px; fill:var(--muted);}
+  .chroma .tp{fill:var(--accent); font-weight:700;}
+
+  /* ── sections ── */
+  section{padding:2.3rem 0; border-bottom:1px solid var(--line);}
+  .sec-no{font-family:var(--mono); font-size:.8rem; font-weight:700; letter-spacing:.06em;
+    color:var(--accent); margin:0 0 .35rem;}
+  h2{font-family:var(--sans); font-weight:660; font-size:1.34rem; letter-spacing:-.01em;
+    margin:0 0 .9rem; text-wrap:balance;}
+  h3{font-family:var(--sans); font-weight:640; font-size:1.03rem; margin:1.5rem 0 .5rem;}
+  p{margin:.8rem 0;}
+  .col > section p, section > p{max-width:66ch;}
+  a{color:var(--accent2); text-underline-offset:2px;}
+  strong{font-weight:640;}
+  code, .var{font-family:var(--mono); font-size:.92em; background:var(--eqbg);
+    padding:.08em .38em; border-radius:5px;}
+
+  /* ── equations ── */
+  .eq{display:grid; grid-template-columns:1fr auto; align-items:center; gap:1rem;
+    margin:1.5rem 0; padding:1.05rem 1.3rem; background:var(--eqbg);
+    border-left:3px solid var(--accent); border-radius:0 10px 10px 0; overflow-x:auto;}
+  .expr{font-family:var(--serif); font-size:1.2rem; white-space:nowrap;}
+  .expr i{font-style:italic;}
+  .eq .no{font-family:var(--mono); font-size:.82rem; color:var(--muted);
+    font-variant-numeric:tabular-nums;}
+  .frac{display:inline-flex; flex-direction:column; text-align:center;
+    vertical-align:middle; margin:0 .12em; font-size:.86em;}
+  .frac .n{border-bottom:1.4px solid currentColor; padding:0 .35em; line-height:1.35;}
+  .frac .d{padding:0 .35em; line-height:1.35;}
+  sub,sup{font-size:.72em;}
+
+  /* ── stat notes ── */
+  .note{background:var(--notebg); border:1px solid var(--line); border-radius:12px;
+    padding:.85rem 1.1rem; margin:1.2rem 0; font-size:.95rem;}
+  .note .tag{font-family:var(--sans); font-size:.68rem; font-weight:700; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--accent); display:block; margin-bottom:.3rem;}
+
+  /* ── summary table ── */
+  .tblwrap{overflow-x:auto; margin:1.1rem 0;}
+  table{border-collapse:collapse; width:100%; font-family:var(--sans); font-size:.9rem;}
+  th,td{text-align:left; padding:.6rem .7rem; border-bottom:1px solid var(--line);
+    vertical-align:top;}
+  th{font-weight:660; color:var(--muted); font-size:.76rem; letter-spacing:.05em;
+    text-transform:uppercase;}
+  td .expr{font-size:1rem; white-space:normal;}
+
+  footer{padding:2rem 0 3rem; color:var(--muted); font-size:.86rem;}
+  footer .col{max-width:66ch;}
+
+  @media (prefers-reduced-motion:no-preference){
+    .draw{stroke-dasharray:var(--len); stroke-dashoffset:var(--len);
+      animation:draw 1.7s ease-out forwards;}
+    @keyframes draw{to{stroke-dashoffset:0;}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="col">
+      <p style="margin:0 0 1rem;font-family:var(--sans);font-size:.85rem;"><a href="index.html" style="color:var(--accent2);text-decoration:none;">← グラジエント分離モデル 理解ノート</a></p>
+      <p class="eyebrow">HPLC 保持モデル · 理論ノート</p>
+      <h1>アイソクラティック保持回帰モデルの構築</h1>
+      <p class="lede">保持係数 <i>k</i> から出発し、ファントホッフ（温度）× LSS（溶媒比）を積み上げて、
+        温度・溶媒比の多因子回帰式へ。等溶媒（グラジエントなし）条件でどう予測式を組み立てるかを、
+        導出の順に追う。</p>
+      <svg class="chroma" viewBox="0 0 900 160" preserveAspectRatio="none" aria-label="TP・IP1・IP2 の3ピークを持つクロマトグラム">
+        <line x1="0" y1="140" x2="900" y2="140" stroke="var(--line)" stroke-width="1.4"/>
+        <path id="area" fill="var(--eqbg)" stroke="none"></path>
+        <path id="curve" class="draw" fill="none" stroke="var(--accent)" stroke-width="2.4"
+              stroke-linejoin="round" stroke-linecap="round"></path>
+        <g id="labels"></g>
+        <line x1="0" y1="140" x2="900" y2="140" stroke="var(--muted)" stroke-width="0" />
+        <text x="880" y="156" text-anchor="end">t_R →</text>
+      </svg>
+    </div>
+  </header>
+
+  <div class="col">
+
+    <section>
+      <p class="sec-no">§0</p>
+      <h2>「等溶媒」とは — なぜ回帰で解けるのか</h2>
+      <p><strong>アイソクラティック（等溶媒・isocratic）</strong>とは、分析のあいだ移動相の組成
+        （有機溶媒比 <span class="var">φ</span>）を<strong>ずっと一定</strong>に保つ運転方式のこと。
+        時間とともに <span class="var">φ</span> を変える<strong>グラジエント</strong>の対義語である。
+        等溶媒では 1 回の分析は温度 <i>T</i>・溶媒比 <span class="var">φ</span>・流速 <i>F</i> が
+        固定された<strong>空間内の 1 点</strong>に対応する。</p>
+      <p>だから「いくつかの等溶媒条件で保持時間を測り、保持の強さを条件
+        <span class="var">(T, φ, F)</span> の関数として当てはめる」――これはそのまま
+        <strong>重回帰</strong>の問題になる。以下では、その回帰式を勘でなく
+        <strong>クロマトグラフィーの物理化学</strong>から組み立てる。</p>
+      <div class="note"><span class="tag">なぜ物理式か</span>
+        汎用の多項式 <span class="var">y = a + bT + cφ + …</span> を当てることもできる。だが物理式を使うと
+        (1) 少ない実験でも外挿・条件間の挙動が妥当になりやすく、(2) 係数が「温度の効き」「溶媒の効き」
+        として<strong>意味を持ち</strong>、(3) 溶出順の入れ替わり（クロスオーバー）を交互作用として自然に表せる。</div>
+    </section>
+
+    <section>
+      <p class="sec-no">§1</p>
+      <h2>保持係数 <i>k</i> と保持時間 <i>t</i><sub>R</sub></h2>
+      <p><strong>保持係数 <i>k</i></strong> は、成分が固定相にどれだけ強く引き留められるかを表す無次元量
+        （大きいほど遅く出る）。保持されない物質が通り抜ける<strong>ボイド時間</strong>
+        <i>t</i><sub>0</sub> と、ピークの出る<strong>保持時間</strong> <i>t</i><sub>R</sub> の関係は：</p>
+      <div class="eq"><span class="expr"><i>t</i><sub>R</sub> = <i>t</i><sub>0</sub>(1 + <i>k</i>),
+        &nbsp;&nbsp; <i>t</i><sub>0</sub> = <span class="frac"><span class="n"><i>V</i><sub>m</sub></span><span class="d"><i>F</i></span></span></span>
+        <span class="no">(1)</span></div>
+      <p>ここで <i>V</i><sub>m</sub> はカラム内で移動相が占める体積（死容量）、<i>F</i> は流速。
+        逆に解けば、実測 <i>t</i><sub>R</sub> から <i>k</i> が求まる：
+        <span class="var">k = t_R·F/V_m − 1</span>。<strong>ここが土台</strong>で、以降は
+        「<i>k</i> が <i>T</i> と <span class="var">φ</span> でどう決まるか」を積み上げる。</p>
+      <div class="note"><span class="tag">効くのは T と φ</span>
+        <i>k</i> は温度と溶媒比で決まり、<strong>流速 F は <i>k</i> を変えない</strong>（F は <i>t</i><sub>0</sub>
+        を通じて時間軸を伸縮させるだけ）。F はおもにピーク幅の側で効く（§6）。</p></div>
+    </section>
+
+    <section>
+      <p class="sec-no">§2</p>
+      <h2>温度の効き — ファントホッフ式</h2>
+      <p>分配平衡の熱力学（ファントホッフの関係「平衡定数の対数は 1/<i>T</i> に比例」）を
+        クロマトに当てると、保持の対数は絶対温度の逆数に比例する：</p>
+      <div class="eq"><span class="expr">ln <i>k</i> = <i>a</i> + <span class="frac"><span class="n"><i>b</i></span><span class="d"><i>T</i><sub>K</sub></span></span></span>
+        <span class="no">(2)</span></div>
+      <p><i>T</i><sub>K</sub> = 温度[℃] + 273.15（ケルビン）、<i>a</i> は切片、<i>b</i> は温度項の係数。
+        逆相では溶質移行が発熱的なので <i>b</i> &gt; 0 となり、<strong>低温ほど保持が強い</strong>。
+        実際は曲がる場合もあるが、疎水性相互作用が支配的なら直線で近似でき、必要なら高次で補正する。</p>
+      <div class="note"><span class="tag">統計メモ · 変数変換</span>
+        「ln <i>k</i> を 1/<i>T</i><sub>K</sub> に対して直線で表す」は、統計2級の単回帰と同じ発想。
+        縦軸 ln <i>k</i>・横軸 1/<i>T</i><sub>K</sub> をとると直線になる、という<strong>変数変換</strong>である。</div>
+    </section>
+
+    <section>
+      <p class="sec-no">§3</p>
+      <h2>溶媒の効き — LSS（線形溶媒強度）</h2>
+      <p>逆相 HPLC では、有機溶媒（ACN）の体積分率 <span class="var">φ</span> を増やすほど成分は速く出る。
+        広い範囲で <strong>ln <i>k</i> が <span class="var">φ</span> の一次式</strong>になることが知られる
+        （Linear Solvent Strength, Snyder）：</p>
+      <div class="eq"><span class="expr">ln <i>k</i> = ln <i>k</i><sub>w</sub> − <i>S</i>·<i>φ</i></span>
+        <span class="no">(3)</span></div>
+      <p>ln <i>k</i><sub>w</sub> は <span class="var">φ</span>=0（純水）での保持、<i>S</i> は溶媒強度の傾き
+        （大きいほど <span class="var">φ</span> に敏感）。これを §2 の温度項に足し合わせる。
+        係数 <i>c</i> が −<i>S</i> に相当し、曲がりの補正に 2 次項 <i>d</i>·<span class="var">φ²</span> を足せる：</p>
+      <div class="eq"><span class="expr">ln <i>k</i> = <i>a</i> + <span class="frac"><span class="n"><i>b</i></span><span class="d"><i>T</i><sub>K</sub></span></span> + <i>c</i>·<i>φ</i> ( + <i>d</i>·<i>φ</i><sup>2</sup> )</span>
+        <span class="no">(4)</span></div>
+    </section>
+
+    <section>
+      <p class="sec-no">§4</p>
+      <h2>温度 × 溶媒 とクロスオーバー</h2>
+      <p>温度と溶媒の効きは独立でない――<strong>溶媒の傾き <i>S</i> が温度で変わる</strong>。
+        これを交互作用項 <i>e</i>·(<span class="var">φ</span>/<i>T</i><sub>K</sub>) で表す：</p>
+      <div class="eq"><span class="expr">ln <i>k</i> = <i>a</i> + <span class="frac"><span class="n"><i>b</i></span><span class="d"><i>T</i><sub>K</sub></span></span> + <i>c</i>·<i>φ</i> + <i>d</i>·<i>φ</i><sup>2</sup> + <i>e</i>·<span class="frac"><span class="n"><i>φ</i></span><span class="d"><i>T</i><sub>K</sub></span></span></span>
+        <span class="no">(5)</span></div>
+      <p>この <i>e</i>·<span class="var">φ/T_K</span> が<strong>ピークごとに違う</strong>と、ある条件では
+        IP1 &lt; TP &lt; IP2、別の条件では順番が入れ替わる――<strong>クロスオーバー</strong>が生じる。
+        分離度の定義（§7）はこれに耐える形にする。</p>
+      <div class="note"><span class="tag">統計メモ · 交互作用</span>
+        ある要因の効果が別の要因の水準で変わること。ここでは「温度の水準によって、溶媒を増やしたときの
+        保持低下の度合いが変わる」という意味。</div>
+    </section>
+
+    <section>
+      <p class="sec-no">§5</p>
+      <h2>なぜ最小二乗で解けるのか — パラメータについて線形</h2>
+      <p>式 (5) は <span class="var">φ</span> や 1/<i>T</i><sub>K</sub> について見れば曲線だが、
+        推定したい<strong>係数 <i>a,b,c,d,e</i> については「足し算」＝線形</strong>である。
+        だから応答を <span class="var">y = ln k</span>、説明変数を
+        <span class="var">[1, 1/T_K, φ, φ², φ/T_K]</span> とした<strong>ふつうの重回帰（最小二乗）</strong>で係数が決まる。</p>
+      <p>各行を 1 実験、各列を 1 説明変数として並べた<strong>計画行列 <i>X</i></strong> を作り、残差二乗和を
+        最小化する。係数の不確かさは次式で表される：</p>
+      <div class="eq"><span class="expr">Var(係数) = <i>σ</i><sup>2</sup>·(<i>X</i><sup>⊤</sup><i>X</i>)<sup>−1</sup></span>
+        <span class="no">(6)</span></div>
+      <p><i>σ</i><sup>2</sup> は測定ノイズの分散。この式は「データの配り方（<i>X</i>）が良いほど係数が精密に決まる」
+        ことを意味し、実験計画（CCD・D 最適）や Rs の信頼区間の土台になる。</p>
+      <div class="note"><span class="tag">統計メモ · 多重共線性</span>
+        温度範囲が狭いと <i>T</i><sub>K</sub> は 313–333 K で 1/<i>T</i><sub>K</sub> がほぼ一定（変化 ~6%）。
+        すると <span class="var">φ</span> と <span class="var">φ/T_K</span> がほぼ比例し、
+        <strong>個別の係数値は不安定</strong>になる。ただし<strong>和は安定</strong>なので<strong>予測（t<sub>R</sub>・Rs）は信頼できる</strong>。
+        だから個別係数は深読みせず、予測スケールの RMSE / Q² で品質を見る。</div>
+    </section>
+
+    <section>
+      <p class="sec-no">§6</p>
+      <h2>保持時間への復元と「非線形」の正体</h2>
+      <p>フィットした ln <i>k</i> から <i>k</i> を戻し（<span class="var">k = e^{ln k}</span>）、
+        式 (1) で保持時間に直す：</p>
+      <div class="eq"><span class="expr"><i>t</i><sub>R</sub> = <span class="frac"><span class="n"><i>V</i><sub>m</sub></span><span class="d"><i>F</i></span></span>(1 + <i>e</i><sup> ln <i>k</i></sup>)</span>
+        <span class="no">(7)</span></div>
+      <p>ここで指数 <span class="var">e^{ }</span> が入るため、<i>t</i><sub>R</sub> は係数について
+        <strong>非線形</strong>になる。重要な使い分けはこうだ――<strong>フィット自体は ln <i>k</i> が線形
+        なので単純な線形回帰でよい</strong>。非線形になるのは、係数から <i>t</i><sub>R</sub> や Rs を
+        予測する<strong>出口</strong>の段階だけ（Rs の信頼区間や境界標的の D 最適で効いてくる）。</p>
+    </section>
+
+    <section>
+      <p class="sec-no">§7</p>
+      <h2>ループを閉じる — 幅と分離度</h2>
+      <p>分離できているかは「ピーク間の距離」だけでなく「各ピークの太さ」にもよる。本モデルは、理論段数
+        <i>N</i> が条件でほぼ一定という実データ事実（相関 <i>r</i> = 0.96–0.99）を踏まえ、半値幅
+        <i>W</i><sub>h</sub> を保持時間に比例させる：</p>
+      <div class="eq"><span class="expr"><i>W</i><sub>h</sub> = <i>w</i><sub>c0</sub> + <i>w</i><sub>c1</sub>·<i>t</i><sub>R</sub></span>
+        <span class="no">(8)</span></div>
+      <p>ベースライン幅 <i>W</i><sub>b</sub> に直し、目的ピーク TP と各夾雑 IP の<strong>分離度 Rs</strong> を
+        <strong>絶対値付き</strong>で定義する（溶出順が入れ替わっても正しい）。目標は全 IP に対する Rs の
+        <strong>最小値</strong>を 2.0 以上にすること：</p>
+      <div class="eq"><span class="expr"><i>R</i><sub>s</sub> = <span class="frac"><span class="n">2·|<i>t</i><sub>R</sub><sup>TP</sup> − <i>t</i><sub>R</sub><sup>IP</sup>|</span><span class="d"><i>W</i><sub>b</sub><sup>TP</sup> + <i>W</i><sub>b</sub><sup>IP</sup></span></span>,&nbsp;&nbsp; 目標 min<sub>IP</sub> <i>R</i><sub>s</sub> ≥ 2.0</span>
+        <span class="no">(9)</span></div>
+      <div class="note"><span class="tag">クロスオーバー対応</span>
+        絶対値 <strong>| |</strong> がミソ。φ や T を変えて IP1 が TP を追い抜いても、十分に離れていれば
+        Rs は大きいまま評価され、その条件も合格・最適点候補として拾える。ピーク同定は溶出順でなく
+        <strong>化合物の同一性</strong>で固定する（順番が変わっても TP は TP）。</div>
+    </section>
+
+    <section>
+      <p class="sec-no">まとめ</p>
+      <h2>式と根拠の対応</h2>
+      <div class="tblwrap">
+      <table>
+        <thead><tr><th>構成要素</th><th>式</th><th>理論的根拠</th></tr></thead>
+        <tbody>
+          <tr><td>保持係数と時間</td><td><span class="expr"><i>t</i><sub>R</sub> = (<i>V</i><sub>m</sub>/<i>F</i>)(1+<i>k</i>)</span></td><td>死容量・保持係数の定義</td></tr>
+          <tr><td>保持 × 温度</td><td><span class="expr">+ <i>b</i>/<i>T</i><sub>K</sub></span></td><td>ファントホッフ（分配平衡の熱力学）</td></tr>
+          <tr><td>保持 × 溶媒</td><td><span class="expr">+ <i>c</i>·<i>φ</i> (+ <i>d</i>·<i>φ</i><sup>2</sup>)</span></td><td>LSS / Snyder</td></tr>
+          <tr><td>温度 × 溶媒</td><td><span class="expr">+ <i>e</i>·<i>φ</i>/<i>T</i><sub>K</sub></span></td><td>溶媒傾き S の温度依存。クロスオーバーの再現に必要</td></tr>
+          <tr><td>ピーク幅</td><td><span class="expr"><i>W</i><sub>h</sub> = <i>w</i><sub>c0</sub>+<i>w</i><sub>c1</sub>·<i>t</i><sub>R</sub></span></td><td>N ほぼ一定 → t<sub>R</sub> 比例（AICc / Q² で確定）</td></tr>
+          <tr><td>分離度</td><td><span class="expr"><i>R</i><sub>s</sub> = 2|Δ<i>t</i><sub>R</sub>|/(<i>W</i><sub>b1</sub>+<i>W</i><sub>b2</sub>)</span></td><td>標準定義。絶対値でクロスオーバー対応</td></tr>
+          <tr><td>係数推定</td><td><span class="expr">min ‖<i>y</i>−<i>Xβ</i>‖², Var=<i>σ</i><sup>2</sup>(<i>X</i><sup>⊤</sup><i>X</i>)<sup>−1</sup></span></td><td>最小二乗（線形回帰）</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="col">
+      詳しい解説・統計用語の補足・根拠文献は、リポジトリの
+      <code>references/理論構築の流れ.md</code> と <code>references/literature.md</code> を参照。
+      幅モデルを t<sub>R</sub> 比例に簡素化した経緯は <code>references/モデリングの教訓.md</code>、
+      メカニズム vs 二次回帰の比較は <code>references/モデル比較_メカニズムvs二次回帰.md</code> に記録。
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function(){
+    var W=900, base=140;
+    function g(x,mu,sig,amp){return amp*Math.exp(-((x-mu)*(x-mu))/(2*sig*sig));}
+    var peaks=[{mu:270,sig:26,amp:64},{mu:452,sig:30,amp:104},{mu:648,sig:31,amp:80}];
+    var d="M0,"+base;
+    for(var x=0;x<=W;x+=3){
+      var y=base;
+      for(var i=0;i<peaks.length;i++){y-=g(x,peaks[i].mu,peaks[i].sig,peaks[i].amp);}
+      d+=" L"+x+","+y.toFixed(1);
+    }
+    var curve=document.getElementById("curve");
+    var area=document.getElementById("area");
+    curve.setAttribute("d",d);
+    area.setAttribute("d",d+" L"+W+","+base+" L0,"+base+" Z");
+    try{ curve.style.setProperty("--len", Math.ceil(curve.getTotalLength())); }catch(e){}
+    var labels=document.getElementById("labels");
+    var names=[{t:"IP1",mu:270,cls:""},{t:"TP",mu:452,cls:"tp"},{t:"IP2",mu:648,cls:""}];
+    names.forEach(function(p){
+      var top=base;
+      for(var i=0;i<peaks.length;i++){top-=g(p.mu,peaks[i].mu,peaks[i].sig,peaks[i].amp);}
+      var tk=document.createElementNS("http://www.w3.org/2000/svg","text");
+      tk.setAttribute("x",p.mu); tk.setAttribute("y",Math.max(top-8,12));
+      tk.setAttribute("text-anchor","middle"); tk.setAttribute("class",p.cls);
+      tk.textContent=p.t; labels.appendChild(tk);
+    });
+  })();
+</script>
+</body>
+</html>
