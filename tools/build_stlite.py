@@ -66,6 +66,8 @@ def js_json(obj):
     return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
 
 
+# 注意: このテンプレートは str.replace() で穴埋めする（str.format() ではない）。
+# 波括弧は CSS / JS のものをそのまま書く（二重化しない）。
 HTML = """<!doctype html>
 <html lang="ja">
 <head>
@@ -74,27 +76,27 @@ HTML = """<!doctype html>
 <title>HPLC デザインスペース最適化</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/browser@__VER__/build/stlite.css">
 <style>
-  html, body {{ margin: 0; height: 100%; }}
-  #boot {{
+  html, body { margin: 0; height: 100%; }
+  #boot {
     position: fixed; inset: 0; display: grid; place-content: center; gap: .9rem;
     font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
     color: #16232b; background: #f7f9fa; text-align: center; padding: 2rem; z-index: 9;
-  }}
-  @media (prefers-color-scheme: dark) {{
-    #boot {{ color: #e6edf0; background: #0e1518; }}
-  }}
-  #boot h1 {{ margin: 0; font-size: 1.2rem; font-weight: 650; letter-spacing: -.01em; }}
-  #boot p {{ margin: 0; font-size: .88rem; opacity: .72; line-height: 1.8; }}
-  #boot .bar {{
+  }
+  @media (prefers-color-scheme: dark) {
+    #boot { color: #e6edf0; background: #0e1518; }
+  }
+  #boot h1 { margin: 0; font-size: 1.2rem; font-weight: 650; letter-spacing: -.01em; }
+  #boot p { margin: 0; font-size: .88rem; opacity: .72; line-height: 1.8; }
+  #boot .bar {
     width: 220px; height: 3px; margin: 0 auto; border-radius: 3px; overflow: hidden;
     background: rgba(13,148,136,.18);
-  }}
-  #boot .bar i {{
+  }
+  #boot .bar i {
     display: block; width: 40%; height: 100%; border-radius: 3px;
     background: linear-gradient(90deg, #0d9488, #0891b2); animation: slide 1.3s ease-in-out infinite;
-  }}
-  @keyframes slide {{ 0% {{ transform: translateX(-100%); }} 100% {{ transform: translateX(250%); }} }}
-  @media (prefers-reduced-motion: reduce) {{ #boot .bar i {{ animation: none; width: 100%; }} }}
+  }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+  @media (prefers-reduced-motion: reduce) { #boot .bar i { animation: none; width: 100%; } }
 </style>
 </head>
 <body>
@@ -106,31 +108,59 @@ HTML = """<!doctype html>
 </div>
 <div id="root"></div>
 <script type="module">
-import {{ mount }} from "https://cdn.jsdelivr.net/npm/@stlite/browser@__VER__/build/stlite.js";
+import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@__VER__/build/stlite.js";
 
 const files = __FILES__;
 
-mount({{
+mount({
   entrypoint: "app.py",
   prebuiltPackageNames: __PREBUILT__,
   requirements: __REQS__,
   files,
-}}, document.getElementById("root"));
+}, document.getElementById("root"));
 
 // Streamlit の中身が描画されたらローディング表示を消す
 const boot = document.getElementById("boot");
 const root = document.getElementById("root");
-const obs = new MutationObserver(() => {{
-  if (root.querySelector('[data-testid="stAppViewContainer"], .stApp')) {{
+const obs = new MutationObserver(() => {
+  if (root.querySelector('[data-testid="stAppViewContainer"], .stApp')) {
     boot.remove();
     obs.disconnect();
-  }}
-}});
-obs.observe(root, {{ childList: true, subtree: true }});
+  }
+});
+obs.observe(root, { childList: true, subtree: true });
 </script>
 </body>
 </html>
 """
+
+
+def self_check(html, files):
+    """生成物の自己検査。壊れた HTML を出荷しないための最低限の関門。
+    （テンプレートの穴埋めミスで JS が構文エラーになる事故が実際にあったため）"""
+    skeleton = html.split("const files = ")[0] + html.split(";\n\nmount(", 1)[1]
+    assert "{{" not in skeleton, "テンプレートに二重波括弧が残っている（JSが壊れる）"
+    assert 'import { mount }' in html, "mount の import が壊れている"
+    assert html.count("</script>") == 1, "埋め込み内容が script を途中で閉じている"
+
+    # 埋め込んだ内容が元ファイルと完全一致するか（JSON として読み戻して比較）
+    body = html.split("const files = ", 1)[1].split(";\n", 1)[0]
+    for dest, content in json.loads(body).items():
+        assert content == files[dest], f"埋め込み内容が元と違う: {dest}"
+
+    # node があれば ES モジュールとして構文チェック（import 行だけダミー化して検査）
+    import shutil, subprocess, tempfile, re as _re
+    if shutil.which("node"):
+        js = _re.search(r'<script type="module">(.*?)</script>', html, _re.S).group(1)
+        js = _re.sub(r'^import .*?;$', 'const mount=()=>{};', js, count=1, flags=_re.M)
+        with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False, encoding="utf-8") as t:
+            t.write(js)
+        r = subprocess.run(["node", "--check", t.name], capture_output=True, text=True)
+        os.unlink(t.name)
+        assert r.returncode == 0, f"JS 構文エラー: {r.stderr[:300]}"
+        print("  自己検査: 波括弧・往復一致・JS構文 すべて OK")
+    else:
+        print("  自己検査: 波括弧・往復一致 OK（node が無いので JS 構文検査はスキップ）")
 
 
 def build():
@@ -140,6 +170,7 @@ def build():
             .replace("__FILES__", js_json(files))
             .replace("__PREBUILT__", js_json(PREBUILT))
             .replace("__REQS__", js_json(REQUIREMENTS)))
+    self_check(html, files)
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         f.write(html)
