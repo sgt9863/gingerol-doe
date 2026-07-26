@@ -17,6 +17,7 @@ app.py・scripts/*.py・config・デモデータを JSON として HTML に埋�
 
 import json
 import os
+import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -64,6 +65,45 @@ def js_json(obj):
     途中終了するのを防ぐ）。\\u003c は JSON としても JS としても正しいエスケープなので、
     値は元のまま・往復検証もできる。"""
     return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
+
+
+def js_files_literal(files):
+    """埋め込むファイル群を「1ソース行 = HTML 1行」の JS リテラルにする。
+
+    全部を1行の JSON にすると 15 万文字の1行になり、GitHub 上で読めず
+    git の差分も「1行まるごと変更」になってしまう。そこで各ファイルを
+    行ごとの配列にして .join("\\n") で復元する形にする:
+
+        "app.py": [
+          "1行目",
+          "2行目"
+        ].join("\\n"),
+
+    元の内容は完全に復元される（末尾改行も配列末尾の空文字として保持）。"""
+    blocks = []
+    for path, content in files.items():
+        lines = content.split("\n")           # join("\n") で元に戻る（末尾改行も保持）
+        body = ",\n".join("    " + js_json(line) for line in lines)
+        blocks.append(f'  {js_json(path)}: [\n{body}\n  ].join("\\n")')
+    return "{\n" + ",\n".join(blocks) + "\n}"
+
+
+def parse_files_literal(html):
+    """js_files_literal が書いた形を読み戻す（自己検査用）。
+    各配列要素はちょうど1物理行に収まる（改行は \\n にエスケープ済み）ので行単位で復元できる。"""
+    out, cur, path = {}, None, None
+    for line in html.split("\n"):
+        st = line.strip()
+        if cur is None:
+            m = re.match(r'^("(?:[^"\\]|\\.)*")\s*:\s*\[$', st)
+            if m:
+                path, cur = json.loads(m.group(1)), []
+        elif st.startswith("].join("):
+            out[path] = "\n".join(cur)
+            cur, path = None, None
+        else:
+            cur.append(json.loads(st.rstrip(",")))
+    return out
 
 
 # 注意: このテンプレートは str.replace() で穴埋めする（str.format() ではない）。
@@ -143,12 +183,14 @@ def self_check(html, files):
     assert 'import { mount }' in html, "mount の import が壊れている"
     assert html.count("</script>") == 1, "埋め込み内容が script を途中で閉じている"
 
-    # 埋め込んだ内容が元ファイルと完全一致するか（JSON として読み戻して比較）
-    body = html.split("const files = ", 1)[1].split(";\n", 1)[0]
-    for dest, content in json.loads(body).items():
+    # 埋め込んだ内容が元ファイルと完全一致するか（読み戻して比較）
+    back = parse_files_literal(html)
+    assert set(back) == set(files), f"ファイル一覧が違う: {set(files) ^ set(back)}"
+    for dest, content in back.items():
         assert content == files[dest], f"埋め込み内容が元と違う: {dest}"
 
-    # node があれば ES モジュールとして構文チェック（import 行だけダミー化して検査）
+    # node があれば「構文チェック」＋「実際に評価して値が元と一致するか」まで見る。
+    # 配列 + join("\n") で組み立てているので、構文だけでなく実行結果の確認に意味がある。
     import shutil, subprocess, tempfile, re as _re
     if shutil.which("node"):
         js = _re.search(r'<script type="module">(.*?)</script>', html, _re.S).group(1)
@@ -158,16 +200,26 @@ def self_check(html, files):
         r = subprocess.run(["node", "--check", t.name], capture_output=True, text=True)
         os.unlink(t.name)
         assert r.returncode == 0, f"JS 構文エラー: {r.stderr[:300]}"
-        print("  自己検査: 波括弧・往復一致・JS構文 すべて OK")
+
+        # files だけを取り出して評価し、JSON にして Python 側と突き合わせる
+        lit = html.split("const files = ", 1)[1].rsplit(";\n\nmount(", 1)[0]
+        with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False, encoding="utf-8") as t:
+            t.write(f"const files = {lit};\nconsole.log(JSON.stringify(files));\n")
+        r = subprocess.run(["node", t.name], capture_output=True, text=True)
+        os.unlink(t.name)
+        assert r.returncode == 0, f"JS 実行エラー: {r.stderr[:300]}"
+        evaluated = json.loads(r.stdout)
+        assert evaluated == files, "JS が組み立てた内容が元ファイルと一致しない"
+        print("  自己検査: 波括弧・往復一致・JS構文・JS評価結果の一致 すべて OK")
     else:
-        print("  自己検査: 波括弧・往復一致 OK（node が無いので JS 構文検査はスキップ）")
+        print("  自己検査: 波括弧・往復一致 OK（node が無いので JS 検査はスキップ）")
 
 
 def build():
     files = collect_files()
     html = (HTML
             .replace("__VER__", STLITE_VERSION)
-            .replace("__FILES__", js_json(files))
+            .replace("__FILES__", js_files_literal(files))
             .replace("__PREBUILT__", js_json(PREBUILT))
             .replace("__REQS__", js_json(REQUIREMENTS)))
     self_check(html, files)
