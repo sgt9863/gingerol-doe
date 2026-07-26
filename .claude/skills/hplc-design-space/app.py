@@ -30,6 +30,10 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "scripts")
 
+# kaleido（plotly の静止画レンダラ）の有無。stlite（ブラウザ内 Pyodide）には無いため、
+# 回転 GIF 機能はある環境でだけ表示する。中核の計算・3D表示はどちらでも同じ。
+HAS_KALEIDO = importlib.util.find_spec("kaleido") is not None
+
 
 def _load(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -548,20 +552,22 @@ def run_fit_and_designspace(df, factors, all_peaks, interfering, Vm, L_mm, heade
                         key=header_prefix + "html")
 
     # 回転 GIF（kaleido＋Chrome が必要・生成に時間がかかる）
-    with st.expander("回転アニメーションを GIF で書き出す"):
-        gif_frames = st.slider("フレーム数（多いほど滑らか・遅い）", 12, 48, 24, step=4,
-                               key=header_prefix + "gifn")
-        if st.button("GIF を生成", key=header_prefix + "gifbtn"):
-            with st.spinner("GIF 生成中…（フレーム数×数秒）"):
-                try:
-                    gif = ds.rotation_gif_bytes(fig, n_frames=gif_frames,
-                                                duration_ms=rot_dur)
-                    st.image(gif, caption="回転プレビュー")
-                    st.download_button("回転 GIF をDL", gif,
-                                       file_name="designspace_rotation.gif",
-                                       mime="image/gif", key=header_prefix + "gifdl")
-                except Exception as e:
-                    st.error(f"GIF 生成に失敗しました（kaleido/Chrome が必要）: {e}")
+    # kaleido が無い環境（stlite＝ブラウザ内 Pyodide）ではこの節ごと出さない。
+    if HAS_KALEIDO:
+        with st.expander("回転アニメーションを GIF で書き出す"):
+            gif_frames = st.slider("フレーム数（多いほど滑らか・遅い）", 12, 48, 24, step=4,
+                                   key=header_prefix + "gifn")
+            if st.button("GIF を生成", key=header_prefix + "gifbtn"):
+                with st.spinner("GIF 生成中…（フレーム数×数秒）"):
+                    try:
+                        gif = ds.rotation_gif_bytes(fig, n_frames=gif_frames,
+                                                    duration_ms=rot_dur)
+                        st.image(gif, caption="回転プレビュー")
+                        st.download_button("回転 GIF をDL", gif,
+                                           file_name="designspace_rotation.gif",
+                                           mime="image/gif", key=header_prefix + "gifdl")
+                    except Exception as e:
+                        st.error(f"GIF 生成に失敗しました（kaleido/Chrome が必要）: {e}")
 
 
 # ──────────────────────────────
